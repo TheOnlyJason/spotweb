@@ -1,0 +1,18 @@
+export const songs = [
+  { title: "Blinding Lights", artist: "The Weeknd", label: "#e91429" },
+  { title: "Levitating", artist: "Dua Lipa", label: "#ffd700" },
+  { title: "Don't Start Now", artist: "Dua Lipa", label: "#6b4c9a" },
+  { title: "As It Was", artist: "Harry Styles", label: "#1db954" },
+  { title: "Flowers", artist: "Miley Cyrus", label: "#ff6b35" },
+  { title: "Anti-Hero", artist: "Taylor Swift", label: "#c0c0c0" },
+  { title: "Heat Waves", artist: "Glass Animals", label: "#9b59b6" },
+  { title: "Bad Guy", artist: "Billie Eilish", label: "#2ecc71" },
+  { title: "Shape of You", artist: "Ed Sheeran", label: "#e74c3c" },
+  { title: "Starboy", artist: "The Weeknd", label: "#1ed760" },
+  { title: "drivers license", artist: "Olivia Rodrigo", label: "#5dade2" },
+  { title: "Sunflower", artist: "Post Malone", label: "#f1c40f" },
+  { title: "Circles", artist: "Post Malone", label: "#3498db" },
+  { title: "Peaches", artist: "Justin Bieber", label: "#ff9ff3" },
+  { title: "God's Plan", artist: "Drake", label: "#bdc3c7" },
+  { title: "Midnight City", artist: "M83", label: "#6c5ce7" },
+];

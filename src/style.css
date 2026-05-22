@@ -1,0 +1,130 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  font-family: "Inter", system-ui, sans-serif;
+  background: #ffffff;
+  color: #121212;
+}
+
+#canvas-container {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+}
+
+#canvas-container canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.labels-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.record-label-3d {
+  text-align: center;
+  white-space: nowrap;
+  transform: translate(-50%, -100%);
+  pointer-events: none;
+  user-select: none;
+}
+
+.record-label-title {
+  display: block;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #121212;
+  text-shadow: 0 1px 3px rgba(255, 255, 255, 0.9);
+}
+
+.record-label-artist {
+  display: block;
+  font-size: 0.7rem;
+  font-weight: 400;
+  color: #555;
+  margin-top: 2px;
+}
+
+.hud {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 10;
+  padding: 1.25rem 2rem;
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.85) 0%, transparent 100%);
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  font-weight: 700;
+  font-size: 1.1rem;
+}
+
+.now-playing {
+  position: fixed;
+  bottom: 1.75rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
+  text-align: center;
+  background: rgba(18, 18, 18, 0.9);
+  color: #fff;
+  padding: 0.75rem 1.5rem;
+  border-radius: 14px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+  min-width: 260px;
+  backdrop-filter: blur(10px);
+}
+
+.now-playing-label {
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: #1ed760;
+  font-weight: 600;
+}
+
+.now-playing-title {
+  font-size: 0.95rem;
+  font-weight: 600;
+  margin-top: 4px;
+}
+
+.now-playing-artist {
+  font-size: 0.8rem;
+  color: #b3b3b3;
+  margin-top: 2px;
+}
+
+@media (max-width: 768px) {
+  .hud {
+    padding: 1rem 1.25rem;
+  }
+
+  .now-playing {
+    bottom: 1.25rem;
+    min-width: 220px;
+    padding: 0.65rem 1.1rem;
+  }
+}
