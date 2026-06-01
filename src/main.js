@@ -51,7 +51,6 @@ async function setupScene() {
     ],
     linen,
   });
-  window.__sceneApi = sceneApi;
 }
 
 function ensureScene() {
