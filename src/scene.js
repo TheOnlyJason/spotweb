@@ -1,83 +1,93 @@
 import * as THREE from "three";
+import { createBookshelf } from "./bookshelf.js";
 
-export function createScene(container) {
+export function createScene(container, options = {}) {
+  const {
+    books = [],
+    horizontalBooks = [],
+    linen = null,
+  } = options;
+
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0xffffff);
-  scene.fog = new THREE.FogExp2(0xffffff, 0.012);
+  scene.background = new THREE.Color(0x030303);
 
   const camera = new THREE.PerspectiveCamera(
-    50,
+    48,
     container.clientWidth / container.clientHeight,
     0.1,
     100
   );
-  camera.position.set(0, 1.25, 0);
-  camera.lookAt(0, 1.05, 2.5);
+  camera.position.set(0.15, 1.45, 3.55);
+  camera.lookAt(0.05, 0.58, 0);
 
-  const renderer = new THREE.WebGLRenderer({
-    antialias: true,
-    alpha: false,
-    powerPreference: "high-performance",
-  });
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setSize(container.clientWidth, container.clientHeight);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-  renderer.outputColorSpace = THREE.SRGBColorSpace;
-  renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.05;
   container.appendChild(renderer.domElement);
 
-  const ambient = new THREE.AmbientLight(0xffffff, 0.55);
+  const ambient = new THREE.AmbientLight(0xf0f0f8, 0.38);
   scene.add(ambient);
 
-  const key = new THREE.DirectionalLight(0xffffff, 1.45);
-  key.position.set(1.5, 7, 4);
-  key.castShadow = true;
-  key.shadow.mapSize.set(1024, 1024);
+  const key = new THREE.DirectionalLight(0xfff8f0, 1.55);
+  key.position.set(5, 11, 7);
+  key.castShadow = false;
   key.shadow.camera.near = 0.5;
-  key.shadow.camera.far = 20;
-  key.shadow.camera.left = -8;
-  key.shadow.camera.right = 8;
-  key.shadow.camera.top = 8;
-  key.shadow.camera.bottom = -8;
-  key.shadow.bias = -0.0001;
-  key.shadow.normalBias = 0.02;
+  key.shadow.camera.far = 24;
+  key.shadow.camera.left = -5;
+  key.shadow.camera.right = 5;
+  key.shadow.camera.top = 5;
+  key.shadow.camera.bottom = -3;
   scene.add(key);
 
-  const fill = new THREE.DirectionalLight(0xf0f4ff, 0.35);
-  fill.position.set(-3, 2, -2);
-  scene.add(fill);
-
-  const rim = new THREE.PointLight(0xffffff, 0.65, 14);
-  rim.position.set(0, 2.2, 2);
+  const rim = new THREE.DirectionalLight(0xc8d4ff, 0.22);
+  rim.position.set(-6, 4, -3);
   scene.add(rim);
 
-  const vinylFill = new THREE.PointLight(0xe8eeff, 0.35, 10);
-  vinylFill.position.set(0, 1.2, 1.5);
-  scene.add(vinylFill);
+  const floorShadow = new THREE.Mesh(
+    new THREE.PlaneGeometry(3.4, 1.8),
+    new THREE.ShadowMaterial({ opacity: 0.4 })
+  );
+  floorShadow.rotation.x = -Math.PI / 2;
+  floorShadow.position.set(0.05, 0.015, 0.08);
+  floorShadow.receiveShadow = true;
+  scene.add(floorShadow);
 
-  const floorGeo = new THREE.CircleGeometry(12, 64);
-  const floorMat = new THREE.MeshStandardMaterial({
-    color: 0xf4f4f2,
-    roughness: 0.92,
-    metalness: 0.02,
+  const bookshelf = createBookshelf(camera, renderer.domElement, {
+    books,
+    horizontalBooks,
+    linen,
   });
-  const floor = new THREE.Mesh(floorGeo, floorMat);
-  floor.rotation.x = -Math.PI / 2;
-  floor.position.y = 0;
-  floor.receiveShadow = true;
-  scene.add(floor);
+  scene.add(bookshelf.unit);
+  bookshelf.unit.updateMatrixWorld(true);
+
+  const bounds = new THREE.Box3().setFromObject(bookshelf.unit);
+  const center = bounds.getCenter(new THREE.Vector3());
+  const size = bounds.getSize(new THREE.Vector3());
+  const distance = Math.max(size.x, size.y) * 1.5;
+
+  camera.up.set(0, 1, 0);
+  camera.position.set(center.x, center.y, center.z + distance);
+  camera.lookAt(center);
+
+  const viewAxis = center.clone().sub(camera.position).normalize();
+  camera.rotateOnWorldAxis(viewAxis, Math.PI / 2);
 
   function resize() {
-    const w = container.clientWidth;
-    const h = container.clientHeight;
+    const w = Math.max(container.clientWidth, 1);
+    const h = Math.max(container.clientHeight, 1);
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
-    camera.position.set(0, 1.25, 0);
-    camera.lookAt(0, 1.05, 2.5);
     renderer.setSize(w, h);
   }
 
-  return { scene, camera, renderer, resize };
+  resize();
+
+  function render() {
+    bookshelf.animateSlides();
+    renderer.render(scene, camera);
+  }
+
+  return { scene, camera, renderer, bookshelf, resize, render, dispose: bookshelf.dispose };
 }

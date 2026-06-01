@@ -1,44 +1,83 @@
+import { site } from "./content.js";
 import { createScene } from "./scene.js";
-import { createCarousel } from "./carousel.js";
-import { songs } from "./songs.js";
+import { loadLinenTextures } from "./linenTextures.js";
 
 const container = document.getElementById("canvas-container");
-const npTitle = document.getElementById("np-title");
-const npArtist = document.getElementById("np-artist");
+const app = document.getElementById("app");
 
-const { scene, camera, renderer, resize } = createScene(container);
-const carousel = createCarousel(scene, songs);
+if (!container || !app) {
+  throw new Error("Missing #app or #canvas-container element");
+}
 
-carousel.mountLabels(container);
-carousel.updatePositions();
+const titleEl = document.querySelector(".logo span");
+const taglineEl = document.getElementById("site-tagline");
+if (titleEl) titleEl.textContent = site.siteTitle;
+if (taglineEl) taglineEl.textContent = site.intro;
 
-function updateNowPlaying() {
-  const song = carousel.getFrontSong();
-  if (song) {
-    npTitle.textContent = song.title;
-    npArtist.textContent = song.artist;
+let sceneApi = null;
+let setupPromise = null;
+
+function hasSize() {
+  return container.clientWidth > 0 && container.clientHeight > 0;
+}
+
+async function setupScene() {
+  const linen = await loadLinenTextures().catch((err) => {
+    console.warn("Linen textures unavailable, using procedural covers.", err);
+    return null;
+  });
+
+  sceneApi = createScene(container, {
+    books: site.sections,
+    horizontalBooks: [
+      {
+        id: "intro",
+        title: site.siteTitle,
+        body: site.intro,
+        color: site.sections[0]?.color ?? "#7e74c8",
+      },
+      {
+        id: "selected",
+        title: "Selected",
+        body: site.sections[1]?.body ?? "Highlighted work and projects.",
+        color: site.sections[1]?.color ?? "#c9887a",
+      },
+      {
+        id: "index",
+        title: "Index",
+        body: site.sections.map((s) => s.title).join("\n"),
+        color: site.sections[2]?.color ?? "#4fa892",
+      },
+    ],
+    linen,
+  });
+  window.__sceneApi = sceneApi;
+}
+
+function ensureScene() {
+  if (sceneApi) {
+    sceneApi.resize();
+    return true;
   }
+  if (!hasSize() || setupPromise) return false;
+
+  setupPromise = setupScene();
+  return false;
 }
 
 function animate() {
   requestAnimationFrame(animate);
-  if (!document.hidden) {
-    carousel.tick();
-    updateNowPlaying();
-  }
-  renderer.render(scene, camera);
-  carousel.renderLabels(camera);
+  ensureScene();
+  sceneApi?.render();
 }
 
-window.addEventListener("resize", () => {
-  resize();
-  carousel.resizeLabels(container);
-  carousel.updatePositions();
-});
+window.addEventListener("resize", () => sceneApi?.resize());
 
-document.addEventListener("visibilitychange", () => {
-  if (!document.hidden) carousel.updatePositions();
-});
+if (!ensureScene()) {
+  const observer = new ResizeObserver(() => {
+    if (ensureScene()) observer.disconnect();
+  });
+  observer.observe(container);
+}
 
 animate();
-updateNowPlaying();
