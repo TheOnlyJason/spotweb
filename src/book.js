@@ -98,6 +98,7 @@ function createCoverMaterial(color, linen) {
   return mat;
 }
 
+
 export function bookVariant(index) {
   const i = index % 5;
   return {
@@ -468,6 +469,71 @@ function renderPage(rows) {
   return texture;
 }
 
+// Render a photo onto a page (paper background, the image inset like a pasted-in print
+// with a thin border and a caption). Returns the texture immediately and repaints once
+// the image loads. `caption` is optional.
+function renderPhotoPage(url, caption) {
+  const canvas = document.createElement("canvas");
+  canvas.width = PAGE_W;
+  canvas.height = PAGE_H;
+  const ctx = canvas.getContext("2d");
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.generateMipmaps = true;
+  texture.minFilter = THREE.LinearMipmapLinearFilter;
+  texture.anisotropy = 8;
+
+  const paint = (img) => {
+    ctx.fillStyle = PAGE_PAPER;
+    ctx.fillRect(0, 0, PAGE_W, PAGE_H);
+
+    // Frame area inside the page padding.
+    const fx = PAGE_PAD;
+    const fy = PAGE_PAD;
+    const fw = PAGE_W - PAGE_PAD * 2;
+    const fh = PAGE_H - PAGE_PAD * 2 - 64; // leave room for caption
+
+    if (img) {
+      // Contain the image within the frame, centered.
+      const scale = Math.min(fw / img.width, fh / img.height);
+      const iw = img.width * scale;
+      const ih = img.height * scale;
+      const ix = fx + (fw - iw) / 2;
+      const iy = fy + (fh - ih) / 2;
+      // white mat + subtle shadow
+      ctx.save();
+      ctx.shadowColor = "rgba(0,0,0,0.28)";
+      ctx.shadowBlur = 18;
+      ctx.shadowOffsetY = 8;
+      ctx.fillStyle = "#fffdf8";
+      ctx.fillRect(ix - 12, iy - 12, iw + 24, ih + 24);
+      ctx.restore();
+      ctx.drawImage(img, ix, iy, iw, ih);
+      // thin border
+      ctx.strokeStyle = "rgba(0,0,0,0.15)";
+      ctx.lineWidth = 2;
+      ctx.strokeRect(ix, iy, iw, ih);
+    }
+
+    if (caption) {
+      ctx.fillStyle = PAGE_INK;
+      ctx.textAlign = "center";
+      ctx.font = "600 30px Inter, sans-serif";
+      ctx.fillText(caption, PAGE_W / 2, PAGE_H - PAGE_PAD - 8);
+      ctx.textAlign = "left";
+    }
+    texture.needsUpdate = true;
+  };
+
+  paint(null); // immediate paper background while loading
+  const img = new Image();
+  img.crossOrigin = "anonymous";
+  img.onload = () => paint(img);
+  img.src = url;
+
+  return texture;
+}
+
 // After the book rotates 180° to face the reader, the FRONT page stack appears on
 // the LEFT and the BACK stack on the RIGHT. Flip this if it ever reads backwards.
 const FRONT_IS_LEFT = true;
@@ -492,14 +558,19 @@ function topMesh(pivots) {
   return pivots?.[0]?.children?.[0] ?? null;
 }
 
-function pageMaterial(rows) {
-  return rows
-    ? new THREE.MeshLambertMaterial({ map: renderPage(rows) })
-    : createPagesMaterial();
+// A "page" is either an array of text rows, or a photo descriptor { photo, caption }.
+function isPhotoPage(page) {
+  return page && !Array.isArray(page) && typeof page === "object" && page.photo;
 }
 
-function pageTexture(rows) {
-  return renderPage(rows ?? []);
+function pageTexture(page) {
+  if (isPhotoPage(page)) return renderPhotoPage(page.photo, page.caption);
+  return renderPage(page ?? []);
+}
+
+function pageMaterial(page) {
+  if (page == null) return createPagesMaterial();
+  return new THREE.MeshLambertMaterial({ map: pageTexture(page) });
 }
 
 // Cubic ease-in-out: slow start, fast through the arc, gentle settle.
@@ -613,7 +684,15 @@ function renderSpread(bookParts) {
 export function applyContentToPages(bookParts, section) {
   if (!bookParts?.frontPagePivots?.length) return;
   const { pages } = layoutSection(section);
-  bookParts._pages = pages.length ? pages : [[]];
+  let allPages = pages.length ? pages : [[]];
+  // If the section has a photo (e.g. the Jason book), show it on the opening spread:
+  // photo on the left page, the intro text on the right.
+  if (section.photo) {
+    const photoPage = { photo: section.photo, caption: section.title };
+    const firstText = allPages[0] ?? [];
+    allPages = [photoPage, firstText, ...allPages.slice(1)];
+  }
+  bookParts._pages = allPages;
   bookParts._spread = 0;
   bookParts._turn = null;
   if (bookParts.turnLeaf) bookParts.turnLeaf.visible = false;

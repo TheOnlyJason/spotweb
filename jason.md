@@ -80,41 +80,11 @@ Aug 2021 to Jan 2022 · Los Angeles, CA
 
 ## Projects
 
-Resume highlights:
-- ML Stock Analysis — Machine Learning, real-time data (Apr 2025 to Present). Real-time market dashboard combining financial data with news sentiment analysis and buy/sell recommendations. Featured on LinkedIn.
-- Embedded Geospatial Tracking System — Flutter, Google Maps SDK (Sept 2025 to Present). Full-stack tracking with geotagged listings, real-time map discovery, and custom AnimationController-driven UI.
-- Distributed Machine Learning Ingestion Pipeline — C++, Python (Apr 2025). End-to-end ML ingestion with streaming validation, automated testing, and Git-based CI/CD for reproducible feature modeling.
-- Real-Time Content Telemetry & Command Interface — Golang, Flask, gRPC (Apr 2025). Fault-tolerant telemetry engine, gRPC dashboards, and Transformer NLP pipelines with interactive retraining UI.
+A panel of my public GitHub repositories appears when this book is open — each one links straight to its repo.
 
-GitHub — 20 public repositories (@TheOnlyJason):
+Highlights: real-time ML stock dashboards, a 3D Three.js endless runner (Astro-Dash), Rust REST services, Flutter geospatial tracking, and a range of web and course projects across 2023–2026.
 
-2026:
-- youtubebot — TypeScript. Creates short-form content.
-- spotifymixvideo — Spotify mix / video project.
-- Matchateahousesite — TypeScript. Matcha tea house website, recently active.
-- spotbattle — TypeScript. Spotify battle-style app or game.
-- billable — Python. Billing / invoicing application.
-- tiktokrepostgame — TikTok repost game experiment.
-
-2025:
-- restful-rust — Rust. RESTful API or service built in Rust.
-- Astro-Dash — JavaScript, Three.js. 3D space-themed endless runner; an alien dodges procedural platforms, with character animation, lighting, and music.
-
-2024:
-- Assignment4 — JavaScript. Course assignment project.
-- Connectly — Social / connectivity app project.
-- Assignment3 — JavaScript. Course assignment project.
-- solarsystem — JavaScript. A mini solar system visualization.
-- Assignment2 — Course assignment project.
-- study — C++. Study / practice codebase.
-- valentine — TypeScript. Interactive valentine project (CodeSandbox).
-- homework7pic10B — Makefile. PIC 10B homework, lower-division CS at UCLA.
-- MarbleMadness — C++. Marble Madness-style game.
-
-2023:
-- visual-code — Python. Visual coding / graphics experiment.
-- Don't-BeFake — HTML. Web project, "Don't Be Fake."
-- YouToSpot — YouTube to Spotify integration / conversion tool. First repo.
+Open this book to browse all 20+ repositories with links.
 
 ## Contact
 

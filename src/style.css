@@ -220,6 +220,95 @@ body {
   letter-spacing: 0.04em;
 }
 
+.projects-overlay {
+  position: absolute;
+  top: 50%;
+  right: 2.5rem;
+  transform: translateY(-50%);
+  z-index: 8;
+  width: min(22rem, 32vw);
+  max-height: 78vh;
+  display: flex;
+  flex-direction: column;
+  padding: 1rem 1.1rem 1.2rem;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+  background: rgba(10, 11, 14, 0.86);
+  backdrop-filter: blur(8px);
+  pointer-events: auto;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.55);
+}
+
+.projects-overlay[hidden] {
+  display: none;
+}
+
+.projects-overlay__header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 0.75rem;
+}
+
+.projects-overlay__header h2 {
+  margin: 0;
+  color: #f4efe6;
+  font: 600 1.05rem/1 "Inter", system-ui, sans-serif;
+}
+
+.projects-overlay__profile {
+  color: #9fb4d8;
+  font: 500 0.78rem/1 "Inter", system-ui, sans-serif;
+  text-decoration: none;
+}
+
+.projects-overlay__profile:hover {
+  color: #cfe0ff;
+}
+
+.projects-overlay__list {
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.projects-overlay__year {
+  margin: 0.6rem 0 0.2rem;
+  color: rgba(255, 255, 255, 0.45);
+  font: 600 0.7rem/1 "Inter", system-ui, sans-serif;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.projects-overlay__item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  padding: 0.45rem 0.55rem;
+  border-radius: 8px;
+  text-decoration: none;
+  transition: background 0.14s ease;
+}
+
+.projects-overlay__item:hover {
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.projects-overlay__name {
+  color: #e9edf3;
+  font: 500 0.86rem/1.2 "Inter", system-ui, sans-serif;
+}
+
+.projects-overlay__item:hover .projects-overlay__name {
+  color: #fff;
+}
+
+.projects-overlay__note {
+  color: rgba(255, 255, 255, 0.5);
+  font: 400 0.74rem/1.25 "Inter", system-ui, sans-serif;
+}
+
 .hud {
   position: relative;
   z-index: 10;

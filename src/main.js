@@ -9,11 +9,6 @@ if (!container || !app) {
   throw new Error("Missing #app or #canvas-container element");
 }
 
-const titleEl = document.querySelector(".logo span");
-const taglineEl = document.getElementById("site-tagline");
-if (titleEl) titleEl.textContent = site.siteTitle;
-if (taglineEl) taglineEl.textContent = site.intro;
-
 let sceneApi = null;
 let setupPromise = null;
 
@@ -27,14 +22,18 @@ async function setupScene() {
     return null;
   });
 
+  // Contact lives in jason.md but is not shown as its own book on the shelf.
+  const shelfBooks = site.sections.filter((s) => s.id !== "contact");
+
   sceneApi = createScene(container, {
-    books: site.sections,
+    books: shelfBooks,
     horizontalBooks: [
       {
         id: "intro",
         title: site.siteTitle,
         body: site.intro,
         color: site.sections[0]?.color ?? "#7e74c8",
+        photo: "/jason.jpg",
       },
       {
         id: "selected",
@@ -50,6 +49,7 @@ async function setupScene() {
       },
     ],
     linen,
+    badgePhoto: "/jason.jpg",
   });
 }
 

@@ -1,11 +1,27 @@
 import * as THREE from "three";
 import { createBookshelf } from "./bookshelf.js";
 
+// Bounding box of a subtree, skipping meshes flagged userData.noBounds (hidden helpers
+// like the oversized page-turn leaf that would otherwise distort framing).
+function boundsExcludingFlagged(root) {
+  const box = new THREE.Box3();
+  const tmp = new THREE.Box3();
+  root.updateMatrixWorld(true);
+  root.traverse((o) => {
+    if (!o.isMesh || o.userData?.noBounds || !o.geometry) return;
+    o.geometry.computeBoundingBox();
+    tmp.copy(o.geometry.boundingBox).applyMatrix4(o.matrixWorld);
+    box.union(tmp);
+  });
+  return box;
+}
+
 export function createScene(container, options = {}) {
   const {
     books = [],
     horizontalBooks = [],
     linen = null,
+    badgePhoto = null,
   } = options;
 
   const scene = new THREE.Scene();
@@ -58,11 +74,15 @@ export function createScene(container, options = {}) {
     books,
     horizontalBooks,
     linen,
+    badgePhoto,
   });
   scene.add(bookshelf.unit);
   bookshelf.unit.updateMatrixWorld(true);
 
-  const bounds = new THREE.Box3().setFromObject(bookshelf.unit);
+  // Bounds for framing must use the REAL content only. Hidden helper meshes (e.g. the
+  // oversized page-turn leaf) are flagged userData.noBounds; including them would skew
+  // the center and — combined with the 90° camera roll below — shove the shelf sideways.
+  const bounds = boundsExcludingFlagged(bookshelf.unit);
   const center = bounds.getCenter(new THREE.Vector3());
   const size = bounds.getSize(new THREE.Vector3());
   const distance = Math.max(size.x, size.y) * 1.5;

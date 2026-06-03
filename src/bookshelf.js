@@ -9,10 +9,11 @@ import {
   turnBookPage,
   stepBookPageTurn,
 } from "./book.js";
+import { createProjectsOverlay } from "./projectsOverlay.js";
 
 const SHELF_SCALE = 1.45;
 const FOCUS_LERP = 0.1;
-const FOCUS_DEPTH_FACTOR = 0.48;
+const FOCUS_DEPTH_FACTOR = 0.75;
 const LEAN_GRAVITY = 0.0042;
 const LEAN_FRICTION = 0.968;
 const LEAN_PUSH_LERP = 0.14;
@@ -312,7 +313,105 @@ function boundsExcludingFlagged(root) {
   return box;
 }
 
-function buildShelfFrame(booksGroup) {
+// A name badge that hangs by two cords and SWINGS like a pendulum from a pivot at the
+// top. Built in shelf-frame local space (+y up on screen, +z toward camera). Returns
+// the pivot group plus the pickable card and a mutable swing state used by the loop.
+function createNameBadge(box, photoUrl) {
+  const topY = box.max.y;
+  const frontZ = box.max.z;
+  const leftX = box.min.x; // hang off the LEFT edge of the shelf
+
+  const cardW = 0.42;
+  const cardH = 0.54;
+  const cordLen = 0.18;
+
+  // The whole thing hangs from this pivot (at the top, where the cords attach).
+  const pivot = new THREE.Group();
+  const hangX = leftX + 0.04;
+  const hangZ = frontZ + 0.18;
+  const pivotY = topY + 0.02;
+  pivot.position.set(hangX, pivotY, hangZ);
+  // Resting tilt so it faces the camera a touch and reads as hanging at the side.
+  pivot.rotation.x = -0.1;
+
+  // Render the badge face (name plate) to a canvas texture.
+  const W = 360;
+  const H = 470;
+  const canvas = document.createElement("canvas");
+  canvas.width = W;
+  canvas.height = H;
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#1c1d22";
+  ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = "#2a2c33";
+  ctx.fillRect(10, 10, W - 20, H - 20);
+  ctx.fillStyle = "#f4efe6";
+  ctx.font = "600 38px Inter, sans-serif";
+  ctx.textAlign = "center";
+  ctx.fillText("Jason Dai", W / 2, H - 60);
+  ctx.fillStyle = "#b9c2d0";
+  ctx.font = "400 20px Inter, sans-serif";
+  ctx.fillText("Software Engineer", W / 2, H - 28);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+
+  const faceMat = new THREE.MeshLambertMaterial({ map: tex });
+  const sideMat = new THREE.MeshLambertMaterial({ color: 0x15161a });
+  const card = new THREE.Mesh(
+    new THREE.BoxGeometry(cardW, cardH, 0.022),
+    [sideMat, sideMat, sideMat, sideMat, faceMat, sideMat]
+  );
+  // Card hangs below the pivot by the cord length + half its height.
+  card.position.set(0, -(cordLen + cardH / 2), 0);
+  card.rotation.y = 0.32; // angle outward
+
+  // Photo inset, mounted just in front of the card face.
+  const photoMat = new THREE.MeshBasicMaterial({ color: 0x888888 });
+  new THREE.TextureLoader().load(photoUrl, (t) => {
+    t.colorSpace = THREE.SRGBColorSpace;
+    photoMat.map = t;
+    photoMat.color.set(0xffffff);
+    photoMat.needsUpdate = true;
+  });
+  // Square photo → square plane; sits in the upper portion of the card.
+  const photoSize = cardW * 0.8;
+  const photo = new THREE.Mesh(new THREE.PlaneGeometry(photoSize, photoSize), photoMat);
+  photo.position.set(0, cardH * 0.16, 0.013);
+  card.add(photo);
+  pivot.add(card);
+
+  // Two cords from the pivot down to the card's top corners.
+  const cordMat = new THREE.MeshLambertMaterial({ color: 0x8a8f99 });
+  for (const sx of [-1, 1]) {
+    const cord = new THREE.Mesh(new THREE.CylinderGeometry(0.004, 0.004, cordLen, 6), cordMat);
+    cord.position.set(sx * cardW * 0.32, -cordLen / 2, -0.015);
+    pivot.add(cord);
+  }
+
+  pivot.userData.noBounds = true; // don't let the badge distort shelf/camera framing
+  pivot.traverse((o) => (o.userData.noBounds = true));
+
+  // Pendulum swing state (angle about Z, plus a gentle Z-axis depth wobble).
+  const swing = { angle: 0, vel: 0, restX: pivot.rotation.x };
+  card.userData.isBadge = true;
+
+  return { pivot, card, swing };
+}
+
+// Advance the badge's pendulum one frame: gravity restoring force toward angle 0,
+// light damping. `swing.angle` rotates the pivot about Z (left/right swing).
+const BADGE_GRAVITY = 0.012;
+const BADGE_DAMPING = 0.985;
+function stepBadgeSwing(badge) {
+  if (!badge) return;
+  const s = badge.swing;
+  s.vel += -s.angle * BADGE_GRAVITY; // restoring force ∝ displacement
+  s.vel *= BADGE_DAMPING;
+  s.angle += s.vel;
+  badge.pivot.rotation.z = s.angle;
+}
+
+function buildShelfFrame(booksGroup, photoUrl) {
   const box = boundsExcludingFlagged(booksGroup);
   const frame = new THREE.Group();
   const padX = 0.1;
@@ -351,7 +450,13 @@ function buildShelfFrame(booksGroup) {
   right.position.set(cx + innerW / 2 - SIDE / 2, cy, cz);
   frame.add(right);
 
-  return frame;
+  let badge = null;
+  if (photoUrl) {
+    badge = createNameBadge(box, photoUrl);
+    frame.add(badge.pivot);
+  }
+
+  return { frame, badge };
 }
 
 export function createBookshelf(camera, domElement, options = {}) {
@@ -360,6 +465,7 @@ export function createBookshelf(camera, domElement, options = {}) {
     horizontalBooks = [],
     linen = null,
     position = new THREE.Vector3(0, 0, 0),
+    badgePhoto = null,
   } = options;
 
   const unit = new THREE.Group();
@@ -617,15 +723,16 @@ export function createBookshelf(camera, domElement, options = {}) {
     if (entry.section.id === "intro") leanEntryRef = entry;
   }
 
-  const shelfFrame = buildShelfFrame(booksGroup);
+  const { frame: shelfFrame, badge } = buildShelfFrame(booksGroup, badgePhoto);
   unit.add(shelfFrame);
+  if (badge) pickables.push(badge.card);
   unit.add(booksGroup);
 
   unit.rotation.set(0, 0, (3 * Math.PI) / 2);
   unit.scale.setScalar(SHELF_SCALE);
   unit.updateMatrixWorld(true);
 
-  const bounds = new THREE.Box3().setFromObject(unit);
+  const bounds = boundsExcludingFlagged(unit);
   const boundsCenter = bounds.getCenter(new THREE.Vector3());
   unit.position.copy(position).add(new THREE.Vector3(0, 0, 0).sub(boundsCenter));
   unit.updateMatrixWorld(true);
@@ -636,6 +743,7 @@ export function createBookshelf(camera, domElement, options = {}) {
   let activeIndex = -1;
   let pointerDown = false;
   let dragRotate = false;
+  let draggingBadge = false;
   let pointerDownX = 0;
   let pointerDownY = 0;
   let lastDragX = 0;
@@ -646,6 +754,7 @@ export function createBookshelf(camera, domElement, options = {}) {
   const rotationHints = null;
   const openBookBtn = createOpenBookButton(domElement.parentElement ?? domElement);
   const pageNav = createPageNav(domElement.parentElement ?? domElement);
+  const projectsOverlay = createProjectsOverlay(domElement.parentElement ?? domElement);
 
   function turnActivePage(dir) {
     if (activeIndex < 0) return;
@@ -729,6 +838,12 @@ export function createBookshelf(camera, domElement, options = {}) {
   function updatePageNav(entry) {
     // Only show paging once the book is actually open and has more than one spread.
     const opened = entry && (entry.openAmount > 0.5 || entry.openTarget > 0.5);
+
+    // Projects book: show the clickable repo-link overlay while it's open.
+    const showProjects = !!(opened && entry.section.id === "projects");
+    if (showProjects) projectsOverlay.show();
+    else projectsOverlay.hide();
+
     const info = opened && entry.bookParts ? bookPageInfo(entry.bookParts) : { spread: 0, total: 0 };
     const show = opened && info.total > 2;
 
@@ -877,8 +992,32 @@ export function createBookshelf(camera, domElement, options = {}) {
     return hits[0].object.userData.bookIndex ?? -1;
   }
 
+  // True if the pointer is currently over the hanging badge card.
+  function pickBadge() {
+    if (!badge) return false;
+    raycaster.setFromCamera(pointer, camera);
+    const hits = raycaster.intersectObject(badge.card, false);
+    return hits.length > 0;
+  }
+
+  // Give the pendulum a push (radians of angular velocity), clamped so it doesn't fly off.
+  function nudgeBadge(amount) {
+    if (!badge) return;
+    badge.swing.vel = THREE.MathUtils.clamp(badge.swing.vel + amount, -0.18, 0.18);
+  }
+
   function onPointerMove(event) {
     setPointerFromEvent(event);
+
+    // Dragging the badge pushes the pendulum in the drag direction.
+    if (draggingBadge) {
+      const deltaX = event.clientX - lastDragX;
+      lastDragX = event.clientX;
+      lastDragY = event.clientY;
+      nudgeBadge(deltaX * 0.0016);
+      suppressClick = true;
+      return;
+    }
 
     if (pointerDown && activeIndex >= 0) {
       const entry = bookEntries[activeIndex];
@@ -909,12 +1048,17 @@ export function createBookshelf(camera, domElement, options = {}) {
     hoveredIndex = pickBook();
     refreshHighlights();
     if (!dragRotate) {
+      const active = activeIndex >= 0 ? bookEntries[activeIndex] : null;
       const canRotate =
-        activeIndex >= 0 &&
+        active &&
         hoveredIndex === activeIndex &&
-        bookEntries[activeIndex].focusAmount > FOCUS_ROTATE_MIN &&
-        !isBookOpened(bookEntries[activeIndex]);
-      domElement.style.cursor = canRotate ? "grab" : hoveredIndex >= 0 ? "pointer" : "default";
+        active.focusAmount > FOCUS_ROTATE_MIN &&
+        !isBookOpened(active);
+      domElement.style.cursor = canRotate
+        ? "grab"
+        : hoveredIndex >= 0
+          ? "pointer"
+          : "default";
     }
   }
 
@@ -936,6 +1080,15 @@ export function createBookshelf(camera, domElement, options = {}) {
     lastDragX = event.clientX;
     lastDragY = event.clientY;
 
+    // Badge takes priority: clicking it gives it a swing, and dragging swings it directly.
+    if (pickBadge()) {
+      draggingBadge = true;
+      nudgeBadge(0.05); // a click sends it swaying
+      domElement.setPointerCapture(event.pointerId);
+      domElement.style.cursor = "grabbing";
+      return;
+    }
+
     const clicked = pickBook();
     if (
       activeIndex >= 0 &&
@@ -951,11 +1104,18 @@ export function createBookshelf(camera, domElement, options = {}) {
     if (event.button !== 0) return;
 
     const wasDragging = dragRotate;
+    const wasBadge = draggingBadge;
     pointerDown = false;
     dragRotate = false;
+    draggingBadge = false;
 
     if (domElement.hasPointerCapture(event.pointerId)) {
       domElement.releasePointerCapture(event.pointerId);
+    }
+
+    if (wasBadge) {
+      domElement.style.cursor = "default";
+      return; // badge interaction consumed this gesture
     }
 
     if (wasDragging || suppressClick) {
@@ -972,10 +1132,11 @@ export function createBookshelf(camera, domElement, options = {}) {
       return;
     }
 
-    if (activeIndex === clicked) {
+    const clickedEntry = bookEntries[clicked];
+    if (activeIndex === clicked && !isBookOpened(clickedEntry)) {
       resetFocusRotation(bookEntries[clicked]);
       setActiveIndex(-1);
-    } else {
+    } else if (activeIndex !== clicked) {
       setActiveIndex(clicked);
     }
 
@@ -990,7 +1151,7 @@ export function createBookshelf(camera, domElement, options = {}) {
   function computeFocusLocal(out) {
     unit.updateMatrixWorld(true);
     booksGroup.updateMatrixWorld(true);
-    new THREE.Box3().setFromObject(unit).getCenter(_unitCenter);
+    boundsExcludingFlagged(unit).getCenter(_unitCenter);
     camera.getWorldDirection(_camDir);
     const depth = _unitCenter.clone().sub(camera.position).dot(_camDir);
     _focusWorld.copy(camera.position).add(_camDir.multiplyScalar(depth * FOCUS_DEPTH_FACTOR));
@@ -1258,6 +1419,7 @@ export function createBookshelf(camera, domElement, options = {}) {
     rotationHints?.root.remove();
     openBookBtn.remove();
     pageNav.root.remove();
+    projectsOverlay.remove();
   }
 
   function clearActive() {
