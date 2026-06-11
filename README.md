@@ -32,9 +32,7 @@ Remove the old GoDaddy nameservers (`ns63.domaincontrol.com`, `ns64.domaincontro
 
 4. **Save and Deploy**
 
-**If your project uses a deploy command** (`npm run deploy` or `wrangler deploy`), the repo includes `wrangler.jsonc` — it serves the built `dist/` folder. Do **not** let Wrangler auto-modify Vite; `vite.config.js` already has `plugins: []`.
-
-**Recommended for Git-connected Pages:** build command `npm run build`, output directory `dist` only (no `wrangler deploy` in the dashboard).
+Use **`npm run build`** only — do not set the build command to `wrangler deploy` or `npm run deploy`. This project is static HTML/JS; Pages serves the `dist/` folder after Vite builds.
 
 ### 3. Attach your domain
 
