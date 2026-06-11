@@ -4,7 +4,7 @@ import {
   createLinenSpineMaterial,
 } from "./linenTextures.js";
 import { softenColor } from "./colors.js";
-import { drawSpineBackground, drawSpineLabel } from "./spineText.js";
+import { drawSpineBackground, drawSpineLabel, spineCanvasSize, configureSpineTexture } from "./spineText.js";
 
 export const BOOK_WIDTH = 0.72;
 export const BOOK_HEIGHT = 1.02;
@@ -64,15 +64,27 @@ function createPagesMaterial() {
   return mat;
 }
 
-function createSpineMaterial(color, spineLabel, linen, { flipLabel = false } = {}) {
+// A clean blank reading-page face: smooth warm paper, no stripes. Used for the visible
+// page surfaces when a page has no content (the striped texture is only for the page
+// stack's side edges, where it reads as stacked sheets).
+function createBlankPageMaterial() {
+  const mat = new THREE.MeshLambertMaterial({ map: renderPage([]) });
+  mat.emissive = new THREE.Color(0x000000);
+  return mat;
+}
+
+function createSpineMaterial(color, spineLabel, linen, { flipLabel = false, height, thickness } = {}) {
   const tint = softenColor(color);
 
   if (linen && spineLabel) {
-    return createLinenSpineMaterial(linen, tint, spineLabel, { flipLabel });
+    return createLinenSpineMaterial(linen, tint, spineLabel, {
+      flipLabel,
+      height,
+      thickness,
+    });
   }
 
-  const w = 512;
-  const h = 2048;
+  const { w, h } = spineCanvasSize(height ?? BOOK_HEIGHT, thickness ?? BOOK_SPINE);
   const canvas = document.createElement("canvas");
   canvas.width = w;
   canvas.height = h;
@@ -81,9 +93,7 @@ function createSpineMaterial(color, spineLabel, linen, { flipLabel = false } = {
   if (spineLabel) drawSpineLabel(ctx, w, h, spineLabel, { flip: flipLabel });
 
   const map = new THREE.CanvasTexture(canvas);
-  map.colorSpace = THREE.SRGBColorSpace;
-  map.generateMipmaps = true;
-  map.minFilter = THREE.LinearMipmapLinearFilter;
+  configureSpineTexture(map);
 
   const mat = new THREE.MeshLambertMaterial({ map });
   mat.emissive = new THREE.Color(0x000000);
@@ -129,6 +139,8 @@ export function createBook(options = {}) {
   const coverMat = createCoverMaterial(color, linen);
   const spineMat = createSpineMaterial(color, spineLabel, linen, {
     flipLabel: flipSpineLabel,
+    height,
+    thickness,
   });
   const pagesMat = createPagesMaterial();
   const backMat = pagesMat.clone();
@@ -267,6 +279,7 @@ export function createBook(options = {}) {
       turnLeaf,
       creaseShadow,
       leafLen,
+      pageFaceAspect: pageDepth / pageHeight,
     };
 
     group.add(frontCoverPivot, backCoverPivot, hitVolumeGroup);
@@ -304,13 +317,58 @@ const GUTTER_OVERLAP = 0.006;
 // gutter seam and the covers behind them.
 const PAGE_TENT = 0.06;
 
-// Portrait canvas roughly matching the page face aspect (height : depth).
-const PAGE_W = 760;
+// Portrait canvas sized to match each book's page face (width = depth, height = height).
 const PAGE_H = 1024;
+const PAGE_W = 760;
 const PAGE_PAD = 56;
-const PAGE_INK = "#2b2b2b";
-const PAGE_PAPER = "#f5efe2";
+const PAGE_INK = "#1c1c1c";
+const PAGE_PAPER = "#f7f2e8";
+const FONT_READING = '"Source Serif 4", Georgia, "Times New Roman", serif';
+const FONT_UI = '"Source Sans 3", system-ui, sans-serif';
 const BULLET_INDENT = 26;
+const PAGE_TEX_SCALE =
+  typeof window !== "undefined"
+    ? Math.min(2, Math.max(1.5, window.devicePixelRatio || 1))
+    : 2;
+let _pageTexAnisotropy = 16;
+
+export function setPageTextureAnisotropy(value) {
+  _pageTexAnisotropy = value;
+}
+
+export function defaultPageLayout() {
+  return { w: PAGE_W, h: PAGE_H, pad: PAGE_PAD };
+}
+
+export function pageLayoutForBook(bookParts) {
+  const aspect = bookParts?.pageFaceAspect;
+  if (!aspect || !Number.isFinite(aspect)) return defaultPageLayout();
+  const h = PAGE_H;
+  const w = Math.max(420, Math.round(h * aspect));
+  const pad = Math.round(PAGE_PAD * (w / PAGE_W));
+  return { w, h, pad };
+}
+
+function pageTexDimensions(layout = defaultPageLayout()) {
+  return {
+    w: Math.round(layout.w * PAGE_TEX_SCALE),
+    h: Math.round(layout.h * PAGE_TEX_SCALE),
+  };
+}
+
+function configurePageCtx(ctx) {
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+  if ("textRendering" in ctx) ctx.textRendering = "optimizeLegibility";
+}
+
+function configurePageTexture(texture) {
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.generateMipmaps = false;
+  texture.minFilter = THREE.LinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  texture.anisotropy = _pageTexAnisotropy;
+}
 
 const _measureCanvas =
   typeof document !== "undefined" ? document.createElement("canvas") : null;
@@ -357,24 +415,24 @@ function wrapText(ctx, text, font, maxWidth, indent) {
 }
 
 // Build display rows (text + style + spacing) for a section at a given font size.
-function buildRows(section, fontSize, includeTitle) {
+function buildRows(section, fontSize, includeTitle, layout = defaultPageLayout()) {
   const ctx = _measureCtx;
-  const maxWidth = PAGE_W - PAGE_PAD * 2;
-  const lh = Math.round(fontSize * 1.5);
-  const body = `${fontSize}px Inter, sans-serif`;
-  const bold = `600 ${fontSize}px Inter, sans-serif`;
-  const titleSize = Math.round(fontSize * 1.7);
-  const titleFont = `600 ${titleSize}px Inter, sans-serif`;
+  const maxWidth = layout.w - layout.pad * 2;
+  const lh = Math.round(fontSize * 1.62);
+  const body = `${fontSize}px ${FONT_READING}`;
+  const bold = `600 ${fontSize}px ${FONT_READING}`;
+  const titleSize = Math.round(fontSize * 1.65);
+  const titleFont = `600 ${titleSize}px ${FONT_READING}`;
   const rows = [];
 
   if (includeTitle) {
     for (const l of wrapText(ctx, section.title, titleFont, maxWidth, 0)) {
-      rows.push({ text: l, x: PAGE_PAD, font: titleFont, h: Math.round(titleSize * 1.35) });
+      rows.push({ text: l, x: layout.pad, font: titleFont, h: Math.round(titleSize * 1.35) });
     }
     rows.push({ gap: Math.round(lh * 0.55) });
   }
 
-  const raw = section.body.split("\n");
+  const raw = (section.body ?? "").split("\n");
   for (let line of raw) {
     line = line.replace(/\s+$/, "");
     if (!line.trim()) {
@@ -386,7 +444,7 @@ function buildRows(section, fontSize, includeTitle) {
       wrapped.forEach((l, i) => {
         rows.push({
           text: i === 0 ? `•  ${l}` : l,
-          x: i === 0 ? PAGE_PAD : PAGE_PAD + BULLET_INDENT,
+          x: i === 0 ? layout.pad : layout.pad + BULLET_INDENT,
           font: body,
           h: lh,
         });
@@ -397,7 +455,7 @@ function buildRows(section, fontSize, includeTitle) {
       const font = isHead ? bold : body;
       if (isHead) rows.push({ gap: Math.round(lh * 0.25) });
       for (const l of wrapText(ctx, line, font, maxWidth, 0)) {
-        rows.push({ text: l, x: PAGE_PAD, font, h: lh });
+        rows.push({ text: l, x: layout.pad, font, h: lh });
       }
     }
   }
@@ -430,27 +488,34 @@ function paginate(rows, usableHeight) {
 
 // Lay out the section at a comfortable, readable font and paginate into as many
 // spreads as needed (the reader flips pages with the on-screen arrows).
-const PAGE_FONT_SIZE = 23;
+const PAGE_FONT_SIZE = 26;
 
-function layoutSection(section) {
-  const usable = PAGE_H - PAGE_PAD * 2;
-  const rows = buildRows(section, PAGE_FONT_SIZE, true);
+function layoutSection(section, layout = defaultPageLayout()) {
+  const usable = layout.h - layout.pad * 2;
+  const rows = buildRows(section, PAGE_FONT_SIZE, true, layout);
   const pages = paginate(rows, usable);
   return { fontSize: PAGE_FONT_SIZE, pages };
 }
 
-function renderPage(rows) {
+export function rowsForBody(body, { includeTitle = false, title = "", layout = defaultPageLayout() } = {}) {
+  return buildRows({ title, body: body ?? "" }, PAGE_FONT_SIZE, includeTitle, layout);
+}
+
+function renderPage(rows, layout = defaultPageLayout()) {
+  const { w, h } = pageTexDimensions(layout);
   const canvas = document.createElement("canvas");
-  canvas.width = PAGE_W;
-  canvas.height = PAGE_H;
+  canvas.width = w;
+  canvas.height = h;
   const ctx = canvas.getContext("2d");
+  configurePageCtx(ctx);
+  ctx.scale(PAGE_TEX_SCALE, PAGE_TEX_SCALE);
 
   ctx.fillStyle = PAGE_PAPER;
-  ctx.fillRect(0, 0, PAGE_W, PAGE_H);
+  ctx.fillRect(0, 0, layout.w, layout.h);
   ctx.fillStyle = PAGE_INK;
   ctx.textBaseline = "alphabetic";
 
-  let y = PAGE_PAD;
+  let y = layout.pad;
   for (const r of rows) {
     if (r.gap) {
       y += r.gap;
@@ -462,36 +527,117 @@ function renderPage(rows) {
   }
 
   const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  texture.generateMipmaps = true;
-  texture.minFilter = THREE.LinearMipmapLinearFilter;
-  texture.anisotropy = 8;
+  configurePageTexture(texture);
   return texture;
 }
 
 // Render a photo onto a page (paper background, the image inset like a pasted-in print
 // with a thin border and a caption). Returns the texture immediately and repaints once
 // the image loads. `caption` is optional.
-function renderPhotoPage(url, caption) {
+function photoPageMeta(meta) {
+  if (typeof meta === "string") return { caption: meta };
+  return meta ?? {};
+}
+
+function layoutPhotoDescriptionLines(ctx, description, font, textWidth) {
+  const lines = [];
+  for (const part of description.split("\n")) {
+    const trimmed = part.trim();
+    if (!trimmed) {
+      if (lines.length) lines.push({ gap: true });
+      continue;
+    }
+    for (const line of wrapText(ctx, trimmed, font, textWidth, 0)) {
+      lines.push({ text: line });
+    }
+  }
+  return lines;
+}
+
+function measurePhotoCaptionBlock(ctx, meta, layout = defaultPageLayout()) {
+  const { caption, description, date } = meta;
+  const descFontSize = meta.descFontSize ?? 24;
+  const descFont = `400 ${descFontSize}px ${FONT_READING}`;
+  const lineH = Math.round(descFontSize * 1.35);
+  const textWidth = layout.w - layout.pad * 2;
+  let blockH = 0;
+
+  if (description) {
+    for (const item of layoutPhotoDescriptionLines(ctx, description, descFont, textWidth)) {
+      blockH += item.gap ? Math.round(lineH * 0.35) : lineH;
+    }
+    blockH += 12;
+  } else if (caption) {
+    blockH += 40;
+  }
+  if (date) blockH += 30;
+  return Math.max(blockH, caption || description || date ? 96 : 64);
+}
+
+function drawPhotoCaptionBlock(ctx, meta, topY, layout = defaultPageLayout()) {
+  const { caption, description, date, textAlign = "center" } = meta;
+  const descFontSize = meta.descFontSize ?? 24;
+  const descFont = `400 ${descFontSize}px ${FONT_READING}`;
+  const lineH = Math.round(descFontSize * 1.35);
+  const textWidth = layout.w - layout.pad * 2;
+  const x = textAlign === "left" ? layout.pad : layout.w / 2;
+  let y = topY;
+
+  ctx.textAlign = textAlign;
+
+  if (description) {
+    ctx.fillStyle = PAGE_INK;
+    ctx.font = descFont;
+    for (const item of layoutPhotoDescriptionLines(ctx, description, descFont, textWidth)) {
+      if (item.gap) {
+        y += Math.round(lineH * 0.35);
+        continue;
+      }
+      y += lineH;
+      ctx.fillText(item.text, x, y);
+    }
+    y += 8;
+  } else if (caption) {
+    ctx.fillStyle = PAGE_INK;
+    ctx.font = `600 30px ${FONT_UI}`;
+    y += 34;
+    ctx.fillText(caption, x, y);
+  }
+
+  if (date) {
+    ctx.fillStyle = "rgba(28, 28, 28, 0.62)";
+    ctx.font = `500 22px ${FONT_UI}`;
+    y += 28;
+    ctx.fillText(date, x, y);
+  }
+
+  ctx.textAlign = "left";
+}
+
+function renderPhotoPage(url, meta, layout = defaultPageLayout()) {
+  const pageMeta = photoPageMeta(meta);
+  const { w, h } = pageTexDimensions(layout);
   const canvas = document.createElement("canvas");
-  canvas.width = PAGE_W;
-  canvas.height = PAGE_H;
+  canvas.width = w;
+  canvas.height = h;
   const ctx = canvas.getContext("2d");
+  configurePageCtx(ctx);
+  ctx.scale(PAGE_TEX_SCALE, PAGE_TEX_SCALE);
   const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  texture.generateMipmaps = true;
-  texture.minFilter = THREE.LinearMipmapLinearFilter;
-  texture.anisotropy = 8;
+  configurePageTexture(texture);
+
+  const captionBlockH = measurePhotoCaptionBlock(ctx, pageMeta, layout);
 
   const paint = (img) => {
+    ctx.setTransform(PAGE_TEX_SCALE, 0, 0, PAGE_TEX_SCALE, 0, 0);
     ctx.fillStyle = PAGE_PAPER;
-    ctx.fillRect(0, 0, PAGE_W, PAGE_H);
+    ctx.fillRect(0, 0, layout.w, layout.h);
 
     // Frame area inside the page padding.
-    const fx = PAGE_PAD;
-    const fy = PAGE_PAD;
-    const fw = PAGE_W - PAGE_PAD * 2;
-    const fh = PAGE_H - PAGE_PAD * 2 - 64; // leave room for caption
+    const fx = layout.pad;
+    const fy = layout.pad;
+    const fw = layout.w - layout.pad * 2;
+    const fh = layout.h - layout.pad * 2 - captionBlockH;
 
     if (img) {
       // Contain the image within the frame, centered.
@@ -515,13 +661,7 @@ function renderPhotoPage(url, caption) {
       ctx.strokeRect(ix, iy, iw, ih);
     }
 
-    if (caption) {
-      ctx.fillStyle = PAGE_INK;
-      ctx.textAlign = "center";
-      ctx.font = "600 30px Inter, sans-serif";
-      ctx.fillText(caption, PAGE_W / 2, PAGE_H - PAGE_PAD - 8);
-      ctx.textAlign = "left";
-    }
+    drawPhotoCaptionBlock(ctx, pageMeta, layout.h - layout.pad - captionBlockH, layout);
     texture.needsUpdate = true;
   };
 
@@ -553,9 +693,24 @@ function rightPivots(bp) {
   return FRONT_IS_LEFT ? bp.backPagePivots : bp.frontPagePivots;
 }
 
-// The visible reading face is the topmost (index 0) layer on each side.
+// Every stacked page layer on a side (inner → outer); all need the same face texture
+// so the reader sees content regardless of which sheet is on top for a given orientation.
+function pageMeshes(pivots) {
+  if (!pivots?.length) return [];
+  return pivots.map((p) => p.children[0]).filter(Boolean);
+}
+
+function setSidePageMaterial(pivots, page, bookParts) {
+  const layout = bookParts?._pageLayout ?? pageLayoutForBook(bookParts);
+  const mat = pageMaterial(page, layout);
+  for (const mesh of pageMeshes(pivots)) {
+    mesh.material = mat;
+  }
+}
+
+// Backward-compatible helper (innermost layer).
 function topMesh(pivots) {
-  return pivots?.[0]?.children?.[0] ?? null;
+  return pageMeshes(pivots)[0] ?? null;
 }
 
 // A "page" is either an array of text rows, or a photo descriptor { photo, caption }.
@@ -563,14 +718,14 @@ function isPhotoPage(page) {
   return page && !Array.isArray(page) && typeof page === "object" && page.photo;
 }
 
-function pageTexture(page) {
-  if (isPhotoPage(page)) return renderPhotoPage(page.photo, page.caption);
-  return renderPage(page ?? []);
+function pageTexture(page, layout = defaultPageLayout()) {
+  if (isPhotoPage(page)) return renderPhotoPage(page.photo, page, layout);
+  return renderPage(page ?? [], layout);
 }
 
-function pageMaterial(page) {
-  if (page == null) return createPagesMaterial();
-  return new THREE.MeshLambertMaterial({ map: pageTexture(page) });
+function pageMaterial(page, layout = defaultPageLayout()) {
+  if (page == null) return createBlankPageMaterial();
+  return new THREE.MeshBasicMaterial({ map: pageTexture(page, layout) });
 }
 
 // Cubic ease-in-out: slow start, fast through the arc, gentle settle.
@@ -675,22 +830,34 @@ function createPageTurnMaterial(leafLen) {
 function renderSpread(bookParts) {
   const pages = bookParts._pages ?? [];
   const spread = bookParts._spread ?? 0;
-  const left = topMesh(leftPivots(bookParts));
-  const right = topMesh(rightPivots(bookParts));
-  if (left) left.material = pageMaterial(pages[spread] ?? []);
-  if (right) right.material = pageMaterial(pages[spread + 1] ?? null);
+  setSidePageMaterial(leftPivots(bookParts), pages[spread] ?? [], bookParts);
+  setSidePageMaterial(rightPivots(bookParts), pages[spread + 1] ?? null, bookParts);
 }
 
 export function applyContentToPages(bookParts, section) {
   if (!bookParts?.frontPagePivots?.length) return;
-  const { pages } = layoutSection(section);
-  let allPages = pages.length ? pages : [[]];
-  // If the section has a photo (e.g. the Jason book), show it on the opening spread:
-  // photo on the left page, the intro text on the right.
-  if (section.photo) {
+  const layout = pageLayoutForBook(bookParts);
+  bookParts._pageLayout = layout;
+  let textPages;
+  if (section.textPages?.length) {
+    textPages = section.textPages;
+  } else {
+    const { pages } = layoutSection(section, layout);
+    const hasText = !!section.body?.trim();
+    textPages = hasText ? (pages.length ? pages : [[]]) : [];
+  }
+  let allPages;
+
+  if (section.photoPages?.length) {
+    const photoPages = section.photoPages.map((page) => ({ ...page }));
+    allPages = [...photoPages, ...textPages];
+  } else if (section.photo) {
+    // Jason intro book: photo on the left, intro text on the right.
     const photoPage = { photo: section.photo, caption: section.title };
-    const firstText = allPages[0] ?? [];
-    allPages = [photoPage, firstText, ...allPages.slice(1)];
+    const firstText = textPages[0] ?? [];
+    allPages = [photoPage, firstText, ...textPages.slice(1)];
+  } else {
+    allPages = textPages;
   }
   bookParts._pages = allPages;
   bookParts._spread = 0;
@@ -720,22 +887,21 @@ export function turnBookPage(bookParts, dir) {
   if (to < 0 || to >= pages.length) return false;
 
   const u = leaf.material.uniforms;
+  const layout = bookParts._pageLayout ?? pageLayoutForBook(bookParts);
   if (dir > 0) {
     // Right page lifts and flips to the left. Front face = current right page; the back
     // becomes the new left page. The new right page is revealed beneath.
-    u.uFront.value = pageTexture(pages[from + 1]);
-    u.uBack.value = pageTexture(pages[to]);
+    u.uFront.value = pageTexture(pages[from + 1], layout);
+    u.uBack.value = pageTexture(pages[to], layout);
     u.uDir.value = -1; // right side sits on the -x (back) side in local space
-    const right = topMesh(rightPivots(bookParts));
-    if (right) right.material = pageMaterial(pages[to + 1] ?? null);
+    setSidePageMaterial(rightPivots(bookParts), pages[to + 1] ?? null, bookParts);
   } else {
     // Left page lifts and flips to the right. Front face = current left page; the back
     // becomes the new right page. The new left page is revealed beneath.
-    u.uFront.value = pageTexture(pages[from]);
-    u.uBack.value = pageTexture(pages[to + 1]);
+    u.uFront.value = pageTexture(pages[from], layout);
+    u.uBack.value = pageTexture(pages[to + 1], layout);
     u.uDir.value = 1; // left side sits on the +x (front) side in local space
-    const left = topMesh(leftPivots(bookParts));
-    if (left) left.material = pageMaterial(pages[to] ?? null);
+    setSidePageMaterial(leftPivots(bookParts), pages[to] ?? null, bookParts);
   }
   if (LEAF_FACE_SWAP) {
     const tmp = u.uFront.value;
@@ -776,10 +942,8 @@ export function clearPageContent(bookParts) {
   bookParts._turn = null;
   if (bookParts.turnLeaf) bookParts.turnLeaf.visible = false;
   if (bookParts.creaseShadow) bookParts.creaseShadow.visible = false;
-  const left = topMesh(leftPivots(bookParts));
-  const right = topMesh(rightPivots(bookParts));
-  if (left) left.material = createPagesMaterial();
-  if (right) right.material = createPagesMaterial();
+  setSidePageMaterial(leftPivots(bookParts), null, bookParts);
+  setSidePageMaterial(rightPivots(bookParts), null, bookParts);
 }
 
 export function applyBookOpenAmount(bookParts, amount) {

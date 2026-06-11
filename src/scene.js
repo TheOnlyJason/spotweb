@@ -1,5 +1,7 @@
 import * as THREE from "three";
+import { setPageTextureAnisotropy } from "./book.js";
 import { createBookshelf } from "./bookshelf.js";
+import { createSceneLighting } from "./sceneLighting.js";
 
 // Bounding box of a subtree, skipping meshes flagged userData.noBounds (hidden helpers
 // like the oversized page-turn leaf that would otherwise distort framing).
@@ -39,6 +41,7 @@ export function createScene(container, options = {}) {
   const renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setSize(container.clientWidth, container.clientHeight);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  setPageTextureAnisotropy(renderer.capabilities.getMaxAnisotropy());
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   container.appendChild(renderer.domElement);
@@ -70,11 +73,20 @@ export function createScene(container, options = {}) {
   floorShadow.receiveShadow = true;
   scene.add(floorShadow);
 
+  const sceneDim = document.createElement("div");
+  sceneDim.className = "games-scene-dim";
+  sceneDim.setAttribute("aria-hidden", "true");
+  container.appendChild(sceneDim);
+
+  const sceneLighting = createSceneLighting({ scene, ambient, key, rim });
+
   const bookshelf = createBookshelf(camera, renderer.domElement, {
     books,
     horizontalBooks,
     linen,
     badgePhoto,
+    sceneLighting,
+    sceneDimEl: sceneDim,
   });
   scene.add(bookshelf.unit);
   bookshelf.unit.updateMatrixWorld(true);
@@ -104,8 +116,11 @@ export function createScene(container, options = {}) {
 
   resize();
 
+  const clock = new THREE.Clock();
+
   function render() {
-    bookshelf.animateSlides();
+    const delta = Math.min(clock.getDelta(), 0.05);
+    bookshelf.animateSlides(delta);
     renderer.render(scene, camera);
   }
 

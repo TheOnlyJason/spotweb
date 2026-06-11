@@ -91,6 +91,7 @@ Open this book to browse all 20+ repositories with links.
 Open to full-time roles, internships, collaborations, and interesting technical conversations.
 
 Email: dappice59@gmail.com
+Website: jasonneverdai.com
 Location: Los Angeles, CA
 GitHub: github.com/TheOnlyJason
 LinkedIn: linkedin.com/in/jasondaics/

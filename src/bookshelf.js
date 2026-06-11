@@ -8,11 +8,17 @@ import {
   bookPageInfo,
   turnBookPage,
   stepBookPageTurn,
+  pageLayoutForBook,
 } from "./book.js";
+import { createGameBox, applyBoxOpenAmount, BOX_STACK_SCALE, GAME_BOX_STACK_EXTRA } from "./gameBox.js";
 import { createProjectsOverlay } from "./projectsOverlay.js";
+import { createGamesOverlay } from "./gamesOverlay.js";
+import { adventuresToSection } from "./adventures.js";
+import { educationToSection } from "./education.js";
+import { experienceToSection } from "./experience.js";
 
 const SHELF_SCALE = 1.45;
-const FOCUS_LERP = 0.1;
+const FOCUS_LERP = 0.18;
 const FOCUS_DEPTH_FACTOR = 0.75;
 const LEAN_GRAVITY = 0.0042;
 const LEAN_FRICTION = 0.968;
@@ -21,8 +27,34 @@ const LEAN_SETTLE = 0.32;
 const LEAN_ANGLE_EPS = 0.003;
 const ABOUT_SUPPORT_THRESHOLD = 0.12;
 const ON_SHELF_THRESHOLD = 0.12;
-const STACK_DROP_LERP = 0.14;
-const HORIZONTAL_STACK = ["selected", "index", "intro"];
+const STACK_DROP_LERP = 0.22;
+const HORIZONTAL_STACK = ["games", "adventures", "intro"];
+
+function easeOutCubic(t) {
+  const x = THREE.MathUtils.clamp(t, 0, 1);
+  return 1 - (1 - x) ** 3;
+}
+
+function easeInOutQuart(t) {
+  const x = THREE.MathUtils.clamp(t, 0, 1);
+  return x < 0.5 ? 8 * x * x * x * x : 1 - (-2 * x + 2) ** 4 / 2;
+}
+
+function gamesRevealProgress(openAmount) {
+  const eased = easeInOutQuart(easeOutCubic(openAmount));
+  return eased ** 1.75;
+}
+
+function gamesPaperVisualProgress(paperAmount, closing) {
+  const t = THREE.MathUtils.clamp(paperAmount, 0, 1);
+  if (closing) return t ** 2.6;
+  return gamesRevealProgress(t);
+}
+
+function smoothstep(edge0, edge1, x) {
+  const t = THREE.MathUtils.clamp((x - edge0) / (edge1 - edge0), 0, 1);
+  return t * t * (3 - 2 * t);
+}
 const BOOK_GAP = 0;
 const LEAN_BOOK_X_OFFSET = -0.07;
 const WORK_TOUCH_INSET = 0.018;
@@ -35,8 +67,14 @@ const ROTATE_SENSITIVITY = 0.006;
 const DRAG_CLICK_THRESHOLD = 5;
 const FOCUS_ROTATE_MIN = 0.35;
 const ARROW_ROTATE_SPEED = 0.032;
-const OPEN_BOOK_LERP = 0.04;
-const OPEN_ORIENT_LERP = 0.035;
+const OPEN_BOOK_DAMP = 7;
+const OPEN_BOX_DAMP = 6.5;
+const OPEN_BOX_CLOSE_DAMP = 16;
+const OPEN_PAPER_DAMP = 0.52;
+const OPEN_PAPER_CLOSE_DAMP = 7.5;
+const FOCUS_DAMP = 10;
+const GAMES_CLOSE_FOCUS_DAMP = 18;
+const OPEN_ORIENT_DAMP = 8;
 const PAPER_VIEW_THRESHOLD = 0.52;
 const _camDir = new THREE.Vector3();
 const _unitCenter = new THREE.Vector3();
@@ -95,8 +133,29 @@ function updateRotationHints({ hints, opacity }) {
   hints.root.style.opacity = String(opacity);
 }
 
+function isGameBoxEntry(entry) {
+  return !!entry?.boxParts;
+}
+
+function syncGamesPaperTarget(entry) {
+  if (!isGameBoxEntry(entry)) return;
+  if (entry.openTarget > 0.5 && entry.openAmount >= 0.94) {
+    entry.paperTarget = 1;
+  } else if (entry.openTarget < 0.5) {
+    entry.paperTarget = 0;
+  }
+}
+
+function getOpenParts(entry) {
+  return entry?.boxParts ?? entry?.bookParts ?? null;
+}
+
+function hasOpenableParts(entry) {
+  return !!getOpenParts(entry);
+}
+
 function isPaperSideView(entry, camera) {
-  if (!entry?.bookParts) return false;
+  if (!entry?.bookParts || isGameBoxEntry(entry)) return false;
 
   entry.group.updateMatrixWorld(true);
   entry.group.getWorldPosition(_bookWorldPos);
@@ -327,8 +386,8 @@ function createNameBadge(box, photoUrl) {
 
   // The whole thing hangs from this pivot (at the top, where the cords attach).
   const pivot = new THREE.Group();
-  const hangX = leftX + 0.04;
-  const hangZ = frontZ + 0.18;
+  const hangX = leftX - 0.08;
+  const hangZ = frontZ + 0.2;
   const pivotY = topY + 0.02;
   pivot.position.set(hangX, pivotY, hangZ);
   // Resting tilt so it faces the camera a touch and reads as hanging at the side.
@@ -346,11 +405,11 @@ function createNameBadge(box, photoUrl) {
   ctx.fillStyle = "#2a2c33";
   ctx.fillRect(10, 10, W - 20, H - 20);
   ctx.fillStyle = "#f4efe6";
-  ctx.font = "600 38px Inter, sans-serif";
+  ctx.font = '600 38px "Source Sans 3", system-ui, sans-serif';
   ctx.textAlign = "center";
   ctx.fillText("Jason Dai", W / 2, H - 60);
   ctx.fillStyle = "#b9c2d0";
-  ctx.font = "400 20px Inter, sans-serif";
+  ctx.font = '400 20px "Source Sans 3", system-ui, sans-serif';
   ctx.fillText("Software Engineer", W / 2, H - 28);
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
@@ -362,8 +421,8 @@ function createNameBadge(box, photoUrl) {
     [sideMat, sideMat, sideMat, sideMat, faceMat, sideMat]
   );
   // Card hangs below the pivot by the cord length + half its height.
-  card.position.set(0, -(cordLen + cardH / 2), 0);
-  card.rotation.y = 0.32; // angle outward
+  const cardBaseY = -(cordLen + cardH / 2);
+  card.position.set(0, cardBaseY, 0);
 
   // Photo inset, mounted just in front of the card face.
   const photoMat = new THREE.MeshBasicMaterial({ color: 0x888888 });
@@ -380,35 +439,112 @@ function createNameBadge(box, photoUrl) {
   card.add(photo);
   pivot.add(card);
 
-  // Two cords from the pivot down to the card's top corners.
-  const cordMat = new THREE.MeshLambertMaterial({ color: 0x8a8f99 });
-  for (const sx of [-1, 1]) {
-    const cord = new THREE.Mesh(new THREE.CylinderGeometry(0.004, 0.004, cordLen, 6), cordMat);
-    cord.position.set(sx * cardW * 0.32, -cordLen / 2, -0.015);
-    pivot.add(cord);
-  }
+  // Retractable ID-badge holder: ONE thin reel cord straight down the center, ending
+  // in a small clip that grips the top-center of the card. The cord is a unit-tall
+  // cylinder (height 1) so its length can be set every frame by scaling Y.
+  const cordMat = new THREE.MeshLambertMaterial({ color: 0xc9ccd2 });
+  const cord = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.0035, 0.0035, 1, 6),
+    cordMat
+  );
+  // Geometry origin is the cord's center; we want it anchored at the top (y=0) and
+  // extending downward, so put the mesh origin at the top by offsetting the geometry.
+  cord.geometry.translate(0, -0.5, 0); // now spans y ∈ [-1, 0]
+  cord.position.set(0, 0, -0.012);
+  pivot.add(cord);
+
+  // Reel housing at the very top (where the cord retracts from).
+  const reelMat = new THREE.MeshLambertMaterial({ color: 0x2b2d33 });
+  const reel = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.012, 14), reelMat);
+  reel.rotation.x = Math.PI / 2;
+  reel.position.set(0, 0, -0.012);
+  pivot.add(reel);
+
+  // Small metal clip joining the cord to the top of the card.
+  const clipMat = new THREE.MeshLambertMaterial({ color: 0xb8bcc4 });
+  const clip = new THREE.Mesh(new THREE.BoxGeometry(0.018, 0.03, 0.01), clipMat);
+  pivot.add(clip);
 
   pivot.userData.noBounds = true; // don't let the badge distort shelf/camera framing
   pivot.traverse((o) => (o.userData.noBounds = true));
 
-  // Pendulum swing state (angle about Z, plus a gentle Z-axis depth wobble).
-  const swing = { angle: 0, vel: 0, restX: pivot.rotation.x };
   card.userData.isBadge = true;
 
-  return { pivot, card, swing };
+  // Swing (angle about Z) + reel length offset. extend > 0 = pulled down, < 0 = pulled up.
+  const swing = {
+    angle: 0,
+    vel: 0,
+    restX: pivot.rotation.x,
+    extend: 0,
+    extendVel: 0,
+  };
+
+  const badge = {
+    pivot,
+    card,
+    cord,
+    clip,
+    swing,
+    cardW,
+    cardH,
+    cordLen,
+    cardBaseY,
+  };
+  layoutBadge(badge); // place card/cord/clip for the initial (un-pulled) state
+  return badge;
 }
 
-// Advance the badge's pendulum one frame: gravity restoring force toward angle 0,
-// light damping. `swing.angle` rotates the pivot about Z (left/right swing).
-const BADGE_GRAVITY = 0.012;
-const BADGE_DAMPING = 0.985;
-function stepBadgeSwing(badge) {
+// Position the card, cord, and clip for the current `extend` (negative = pulled up toward reel).
+function layoutBadge(badge) {
+  const len = Math.max(BADGE_MIN_CORD_LEN, badge.cordLen + badge.swing.extend);
+  badge.cord.scale.y = len;
+  badge.clip.position.set(0, -len + 0.012, -0.006);
+  badge.card.position.y = badge.cardBaseY - badge.swing.extend;
+}
+
+// Advance the badge one frame.
+// Swing: gravity restoring force toward angle 0, light damping (left/right pendulum).
+// Retract: the cord is a spring that pulls `extend` back to 0 with some bounce — like
+// releasing a retractable reel. While being actively pulled, the spring is held off.
+const BADGE_GRAVITY = 0.022; // stiffer return → smaller, quicker swing
+const BADGE_DAMPING = 0.92; // heavier damping → settles fast, doesn't keep swinging
+const BADGE_MAX_ANGLE = 0.55;
+const BADGE_DRAG_MAX_ANGLE = 0.95;
+const BADGE_DRAG_ANGLE_SENS = 0.0035;
+const BADGE_RETRACT_STIFFNESS = 0.06; // how hard the reel pulls back
+const BADGE_RETRACT_DAMPING = 0.8; // higher = snappier settle, less bounce
+const BADGE_MAX_EXTEND = 0.7;
+const BADGE_MIN_EXTEND = -0.14;
+const BADGE_MIN_CORD_LEN = 0.04;
+const BADGE_DRAG_EXTEND_SENS = 0.0022;
+function stepBadgeSwing(badge, held) {
   if (!badge) return;
   const s = badge.swing;
-  s.vel += -s.angle * BADGE_GRAVITY; // restoring force ∝ displacement
+
+  // Pendulum swing (always active, even while held), clamped to a gentle range.
+  s.vel += -s.angle * BADGE_GRAVITY;
   s.vel *= BADGE_DAMPING;
   s.angle += s.vel;
+  if (s.angle > BADGE_MAX_ANGLE) {
+    s.angle = BADGE_MAX_ANGLE;
+    s.vel *= -0.3;
+  } else if (s.angle < -BADGE_MAX_ANGLE) {
+    s.angle = -BADGE_MAX_ANGLE;
+    s.vel *= -0.3;
+  }
   badge.pivot.rotation.z = s.angle;
+
+  // Retract spring (only springs back when NOT being held/pulled).
+  if (!held) {
+    s.extendVel += -s.extend * BADGE_RETRACT_STIFFNESS;
+    s.extendVel *= BADGE_RETRACT_DAMPING;
+    s.extend += s.extendVel;
+    if (Math.abs(s.extend) < 1e-4 && Math.abs(s.extendVel) < 1e-4) {
+      s.extend = 0;
+      s.extendVel = 0;
+    }
+  }
+  layoutBadge(badge);
 }
 
 function buildShelfFrame(booksGroup, photoUrl) {
@@ -466,6 +602,8 @@ export function createBookshelf(camera, domElement, options = {}) {
     linen = null,
     position = new THREE.Vector3(0, 0, 0),
     badgePhoto = null,
+    sceneLighting = null,
+    sceneDimEl = null,
   } = options;
 
   const unit = new THREE.Group();
@@ -538,7 +676,7 @@ export function createBookshelf(camera, domElement, options = {}) {
 
   if (horizontalBooks.length) {
     stackLeft = -stackWidth / 2;
-    const bottomBooks = ["selected", "index"]
+    const bottomBooks = ["games", "adventures"]
       .map((id) => horizontalBooks.find((cfg) => cfg.id === id))
       .filter(Boolean);
     const leanBook = horizontalBooks.find((cfg) => cfg.id === "intro");
@@ -550,12 +688,60 @@ export function createBookshelf(camera, domElement, options = {}) {
     bottomBooks.forEach((cfg) => {
       const i = horizontalBooks.indexOf(cfg);
       const variant = bookVariant(i);
+      const stackThickness =
+        cfg.id === "games" ? variant.thickness * BOX_STACK_SCALE : variant.thickness;
       const restX = stackLeft - variant.height / 2;
-      const restY = yCursor + variant.thickness / 2;
-      yCursor += variant.thickness;
-      if (cfg.id === "index") indexVariant = variant;
+      const restY = yCursor + stackThickness / 2;
+      yCursor += stackThickness;
+      if (cfg.id === "games") yCursor += GAME_BOX_STACK_EXTRA;
+      if (cfg.id === "adventures") indexVariant = variant;
 
       const restPos = new THREE.Vector3(restX, restY, bookZ);
+
+      if (cfg.id === "games") {
+        const { group, mesh, meshes, highlight, boxParts } = createGameBox({
+          color: cfg.color,
+          label: cfg.title,
+          linen,
+          spineWidth: stackThickness,
+          spineHeight: variant.height,
+          depth: variant.depth,
+          rotationZ: Math.PI / 2,
+          position: restPos,
+        });
+
+        const meshesToAdd = meshes ?? [mesh];
+        for (const m of meshesToAdd) {
+          m.userData.bookIndex = bookEntries.length;
+          m.userData.sectionId = cfg.id;
+          pickables.push(m);
+        }
+        booksGroup.add(group);
+
+        bookEntries.push({
+          group,
+          mesh,
+          highlight,
+          section: cfg,
+          restPos,
+          restRotation: group.rotation.z,
+          stackThickness,
+          stackRestX: restX,
+          focusAmount: 0,
+          focusYaw: 0,
+          focusYawTarget: 0,
+          focusPitch: 0,
+          focusPitchTarget: null,
+          boxParts,
+          bookParts: null,
+          openAmount: 0,
+          openTarget: 0,
+          paperAmount: 0,
+          paperTarget: 0,
+          clickBump: 0,
+        });
+        return;
+      }
 
       const { group, mesh, meshes, highlight, bookParts } = createBook({
         color: cfg.color,
@@ -593,6 +779,7 @@ export function createBookshelf(camera, domElement, options = {}) {
         focusPitch: 0,
         focusPitchTarget: null,
         bookParts: bookParts ?? null,
+        boxParts: null,
         openAmount: 0,
         openTarget: 0,
       });
@@ -744,6 +931,10 @@ export function createBookshelf(camera, domElement, options = {}) {
   let pointerDown = false;
   let dragRotate = false;
   let draggingBadge = false;
+  let badgeDragStartX = 0;
+  let badgeDragStartY = 0;
+  let badgeDragStartAngle = 0;
+  let badgeDragStartExtend = 0;
   let pointerDownX = 0;
   let pointerDownY = 0;
   let lastDragX = 0;
@@ -755,6 +946,70 @@ export function createBookshelf(camera, domElement, options = {}) {
   const openBookBtn = createOpenBookButton(domElement.parentElement ?? domElement);
   const pageNav = createPageNav(domElement.parentElement ?? domElement);
   const projectsOverlay = createProjectsOverlay(domElement.parentElement ?? domElement);
+  let gamesOverlay;
+  let gamesClosePending = false;
+
+  function beginGamesClose(entry, { keepActive = false } = {}) {
+    if (!entry) return;
+    entry.openTarget = 0;
+    entry.paperTarget = 0;
+    entry.focusYawTarget = 0;
+    entry.focusPitchTarget = null;
+    gamesClosePending = true;
+    resetGamesClickFeedback(entry);
+    gamesOverlay?.dismissContent();
+    if (
+      !keepActive &&
+      activeIndex >= 0 &&
+      bookEntries[activeIndex] === entry
+    ) {
+      activeIndex = -1;
+      refreshHighlights();
+      updateOpenBookButton(null);
+    }
+  }
+
+  function closeGamesView() {
+    const entry = getStackEntry("games");
+    if (!entry || (entry.openAmount < 0.02 && entry.paperAmount < 0.02)) {
+      gamesOverlay?.hide();
+      clearActive();
+      return;
+    }
+    beginGamesClose(entry);
+  }
+
+  gamesOverlay = createGamesOverlay(domElement.parentElement ?? domElement, {
+    onClose: closeGamesView,
+  });
+  let gamesFeedbackPlayed = false;
+
+  function triggerGamesClickFeedback(entry) {
+    if (!entry || gamesFeedbackPlayed) return;
+    gamesFeedbackPlayed = true;
+    entry.clickBump = 1;
+  }
+
+  function resetGamesClickFeedback(entry) {
+    if (!entry) return;
+    entry.clickBump = 0;
+    gamesFeedbackPlayed = false;
+  }
+
+  function sectionContentForEntry(entry) {
+    if (!entry?.section) return null;
+    const layout = pageLayoutForBook(entry.bookParts);
+    if (entry.section.id === "adventures") {
+      return adventuresToSection();
+    }
+    if (entry.section.id === "education") {
+      return educationToSection(entry.section);
+    }
+    if (entry.section.id === "experience") {
+      return experienceToSection(entry.section, layout);
+    }
+    return entry.section;
+  }
 
   function turnActivePage(dir) {
     if (activeIndex < 0) return;
@@ -783,21 +1038,24 @@ export function createBookshelf(camera, domElement, options = {}) {
     event.stopPropagation();
     if (activeIndex < 0) return;
     const entry = bookEntries[activeIndex];
-    if (!entry.bookParts) return;
+    if (!hasOpenableParts(entry)) return;
     const opening = entry.openTarget <= 0.5;
     entry.openTarget = opening ? 1 : 0;
     if (opening) {
-      entry.focusYawTarget = Math.PI;
-      entry.focusPitchTarget = 0;  // flatten pitch so book opens horizontally
-      // Apply the section content to the book pages
-      if (entry.bookParts && entry.section) {
-        applyContentToPages(entry.bookParts, entry.section);
+      entry.focusYawTarget = isGameBoxEntry(entry) ? 0 : Math.PI;
+      entry.focusPitchTarget = 0;
+      if (isGameBoxEntry(entry)) {
+        entry.paperTarget = 0;
+        triggerGamesClickFeedback(entry);
+      } else if (entry.bookParts && entry.section) {
+        applyContentToPages(entry.bookParts, sectionContentForEntry(entry));
       }
     } else {
       entry.focusYawTarget = 0;
       entry.focusPitchTarget = null;
-      // Clear content and trigger callback when closing the book
-      if (entry.bookParts) {
+      if (isGameBoxEntry(entry)) {
+        beginGamesClose(entry);
+      } else if (entry.bookParts) {
         clearPageContent(entry.bookParts);
       }
     }
@@ -808,14 +1066,16 @@ export function createBookshelf(camera, domElement, options = {}) {
     if (!entry) return;
     entry.openAmount = 0;
     entry.openTarget = 0;
-    applyBookOpenAmount(entry.bookParts, 0);
+    if (isGameBoxEntry(entry)) {
+      entry.paperAmount = 0;
+      entry.paperTarget = 0;
+    }
+    if (entry.boxParts) applyBoxOpenAmount(entry.boxParts, 0);
+    else if (entry.bookParts) applyBookOpenAmount(entry.bookParts, 0);
   }
 
   function updateOpenBookButton(entry) {
-    const show =
-      entry &&
-      entry.bookParts &&
-      entry.focusAmount > FOCUS_ROTATE_MIN;
+    const show = entry && hasOpenableParts(entry) && entry.focusAmount > FOCUS_ROTATE_MIN;
 
     openBookBtn.hidden = !show;
     if (!show) {
@@ -823,8 +1083,17 @@ export function createBookshelf(camera, domElement, options = {}) {
       return;
     }
 
-    const opened = entry.openTarget > 0.5 || entry.openAmount > 0.5;
-    openBookBtn.textContent = opened ? "Close book" : "Open book";
+    const isBox = isGameBoxEntry(entry);
+    const opened = isBox
+      ? entry.openTarget > 0.5 || entry.paperAmount > 0.5
+      : entry.openTarget > 0.5 || entry.openAmount > 0.5;
+    openBookBtn.textContent = opened
+      ? isBox
+        ? "Close"
+        : "Close book"
+      : isBox
+        ? "Open"
+        : "Open book";
     openBookBtn.style.opacity = String(
       THREE.MathUtils.clamp(
         (entry.focusAmount - FOCUS_ROTATE_MIN) / (1 - FOCUS_ROTATE_MIN),
@@ -836,10 +1105,8 @@ export function createBookshelf(camera, domElement, options = {}) {
   }
 
   function updatePageNav(entry) {
-    // Only show paging once the book is actually open and has more than one spread.
     const opened = entry && (entry.openAmount > 0.5 || entry.openTarget > 0.5);
 
-    // Projects book: show the clickable repo-link overlay while it's open.
     const showProjects = !!(opened && entry.section.id === "projects");
     if (showProjects) projectsOverlay.show();
     else projectsOverlay.hide();
@@ -858,15 +1125,79 @@ export function createBookshelf(camera, domElement, options = {}) {
   }
 
   function isBookOpened(entry) {
-    return entry && (entry.openTarget > 0.5 || entry.openAmount > 0.08);
+    if (!entry) return false;
+    if (isGameBoxEntry(entry)) {
+      return entry.openTarget > 0.5 || entry.paperAmount > 0.08;
+    }
+    return entry.openTarget > 0.5 || entry.openAmount > 0.08;
   }
 
-  function animateBookOpen(entry) {
-    if (!entry?.bookParts) return;
-    entry.openAmount += (entry.openTarget - entry.openAmount) * OPEN_BOOK_LERP;
+  function animateBookOpen(entry, delta) {
+    const parts = getOpenParts(entry);
+    if (!parts) return;
+    if (isGameBoxEntry(entry)) {
+      const closing = entry.openTarget < entry.openAmount;
+      const boxDamp = closing ? OPEN_BOX_CLOSE_DAMP : OPEN_BOX_DAMP;
+      entry.openAmount = THREE.MathUtils.damp(
+        entry.openAmount,
+        entry.openTarget,
+        boxDamp,
+        delta
+      );
+      syncGamesPaperTarget(entry);
+      entry.paperAmount = THREE.MathUtils.damp(
+        entry.paperAmount,
+        entry.paperTarget,
+        entry.paperAmount > entry.paperTarget ? OPEN_PAPER_CLOSE_DAMP : OPEN_PAPER_DAMP,
+        delta
+      );
+      applyBoxOpenAmount(entry.boxParts, easeOutCubic(entry.openAmount) * 0.18);
+      return;
+    }
+    entry.openAmount = THREE.MathUtils.damp(
+      entry.openAmount,
+      entry.openTarget,
+      OPEN_BOOK_DAMP,
+      delta
+    );
     applyBookOpenAmount(entry.bookParts, entry.openAmount);
-    // Layer the page-turn sweep on top of the resting open angle.
     stepBookPageTurn(entry.bookParts);
+  }
+
+  function getBookScreenAnchor(group) {
+    if (!group) return null;
+    group.getWorldPosition(_bookWorldPos);
+    _bookWorldPos.project(camera);
+    const rect = domElement.getBoundingClientRect();
+    return {
+      x: rect.left + (_bookWorldPos.x * 0.5 + 0.5) * rect.width,
+      y: rect.top + (-_bookWorldPos.y * 0.5 + 0.5) * rect.height,
+    };
+  }
+
+  function updateGamesOverlayVisual() {
+    const entry = getStackEntry("games");
+    if (!entry || entry.paperAmount <= 0.001) {
+      gamesOverlay.setProgress(0);
+      sceneLighting?.setGamesFocus(0);
+      if (sceneDimEl) sceneDimEl.style.opacity = "0";
+      return;
+    }
+    const closing = entry.paperTarget < 0.5;
+    const progress = gamesPaperVisualProgress(entry.paperAmount, closing);
+    const dim = closing ? progress * 0.9 : smoothstep(0.06, 0.72, progress);
+    sceneLighting?.setGamesFocus(dim);
+    if (sceneDimEl) sceneDimEl.style.opacity = String(dim * 0.58);
+    const anchor = getBookScreenAnchor(entry.group);
+    gamesOverlay.setProgress(progress, { anchor, closing });
+  }
+
+  function finishGamesCloseIfNeeded() {
+    if (!gamesClosePending) return;
+    const entry = getStackEntry("games");
+    if (entry && entry.paperAmount > 0.02) return;
+    gamesClosePending = false;
+    gamesOverlay.hide();
   }
 
   function bindRotationHint(el, side) {
@@ -947,9 +1278,23 @@ export function createBookshelf(camera, domElement, options = {}) {
 
   function setActiveIndex(index) {
     if (activeIndex >= 0 && activeIndex !== index) {
-      resetFocusRotation(bookEntries[activeIndex]);
+      const prev = bookEntries[activeIndex];
+      if (isGameBoxEntry(prev) && prev.openTarget > 0.5) {
+        beginGamesClose(prev, { keepActive: index >= 0 });
+      } else {
+        resetFocusRotation(prev);
+      }
     }
     activeIndex = index;
+    if (index >= 0) {
+      const entry = bookEntries[index];
+      if (isGameBoxEntry(entry)) {
+        entry.openTarget = 0;
+        entry.paperTarget = 0;
+        entry.focusYawTarget = 0;
+        entry.focusPitchTarget = 0;
+      }
+    }
     refreshHighlights();
   }
 
@@ -1000,21 +1345,28 @@ export function createBookshelf(camera, domElement, options = {}) {
     return hits.length > 0;
   }
 
-  // Give the pendulum a push (radians of angular velocity), clamped so it doesn't fly off.
-  function nudgeBadge(amount) {
-    if (!badge) return;
-    badge.swing.vel = THREE.MathUtils.clamp(badge.swing.vel + amount, -0.18, 0.18);
-  }
-
   function onPointerMove(event) {
     setPointerFromEvent(event);
 
-    // Dragging the badge pushes the pendulum in the drag direction.
-    if (draggingBadge) {
-      const deltaX = event.clientX - lastDragX;
+    // Dragging the badge: vertical drag extends/retracts the reel cord, horizontal swings it.
+    if (draggingBadge && badge) {
       lastDragX = event.clientX;
       lastDragY = event.clientY;
-      nudgeBadge(deltaX * 0.0016);
+      badge.swing.extend = THREE.MathUtils.clamp(
+        badgeDragStartExtend +
+          (event.clientY - badgeDragStartY) * BADGE_DRAG_EXTEND_SENS,
+        BADGE_MIN_EXTEND,
+        BADGE_MAX_EXTEND
+      );
+      badge.swing.extendVel = 0;
+      badge.swing.angle = THREE.MathUtils.clamp(
+        badgeDragStartAngle + (event.clientX - badgeDragStartX) * BADGE_DRAG_ANGLE_SENS,
+        -BADGE_DRAG_MAX_ANGLE,
+        BADGE_DRAG_MAX_ANGLE
+      );
+      badge.swing.vel = 0;
+      badge.pivot.rotation.z = badge.swing.angle;
+      layoutBadge(badge);
       suppressClick = true;
       return;
     }
@@ -1054,11 +1406,14 @@ export function createBookshelf(camera, domElement, options = {}) {
         hoveredIndex === activeIndex &&
         active.focusAmount > FOCUS_ROTATE_MIN &&
         !isBookOpened(active);
+      const overBadge = hoveredIndex < 0 && pickBadge();
       domElement.style.cursor = canRotate
         ? "grab"
-        : hoveredIndex >= 0
-          ? "pointer"
-          : "default";
+        : overBadge
+          ? "grab"
+          : hoveredIndex >= 0
+            ? "pointer"
+            : "default";
     }
   }
 
@@ -1080,10 +1435,14 @@ export function createBookshelf(camera, domElement, options = {}) {
     lastDragX = event.clientX;
     lastDragY = event.clientY;
 
-    // Badge takes priority: clicking it gives it a swing, and dragging swings it directly.
-    if (pickBadge()) {
+    // Badge takes priority: drag down to pull it out (reel extends), release to retract.
+    // A plain click gives it a little tug + sway.
+    if (pickBadge() && badge) {
       draggingBadge = true;
-      nudgeBadge(0.05); // a click sends it swaying
+      badgeDragStartX = event.clientX;
+      badgeDragStartY = event.clientY;
+      badgeDragStartAngle = badge.swing.angle;
+      badgeDragStartExtend = badge.swing.extend;
       domElement.setPointerCapture(event.pointerId);
       domElement.style.cursor = "grabbing";
       return;
@@ -1133,9 +1492,13 @@ export function createBookshelf(camera, domElement, options = {}) {
     }
 
     const clickedEntry = bookEntries[clicked];
-    if (activeIndex === clicked && !isBookOpened(clickedEntry)) {
-      resetFocusRotation(bookEntries[clicked]);
-      setActiveIndex(-1);
+    if (activeIndex === clicked) {
+      if (isGameBoxEntry(clickedEntry) && isBookOpened(clickedEntry)) {
+        closeGamesView();
+      } else if (!isBookOpened(clickedEntry)) {
+        resetFocusRotation(clickedEntry);
+        setActiveIndex(-1);
+      }
     } else if (activeIndex !== clicked) {
       setActiveIndex(clicked);
     }
@@ -1164,13 +1527,20 @@ export function createBookshelf(camera, domElement, options = {}) {
     return bookEntries.find((entry) => entry.section.id === id);
   }
 
+  function stackStride(entry) {
+    if (!entry) return 0;
+    let stride = entry.stackThickness;
+    if (entry.section.id === "games") stride += GAME_BOX_STACK_EXTRA;
+    return stride;
+  }
+
   function computeFullStackY(id) {
     let y = 0;
     for (const stackId of HORIZONTAL_STACK) {
       const entry = getStackEntry(stackId);
       if (!entry) continue;
       if (stackId === id) return y + entry.stackThickness / 2;
-      y += entry.stackThickness;
+      y += stackStride(entry);
     }
     return y;
   }
@@ -1181,16 +1551,16 @@ export function createBookshelf(camera, domElement, options = {}) {
       const entry = getStackEntry(stackId);
       if (!entry) continue;
       if (stackId === id) return y + entry.stackThickness / 2;
-      if (entry.focusAmount < ON_SHELF_THRESHOLD) y += entry.stackThickness;
+      if (entry.focusAmount < ON_SHELF_THRESHOLD) y += stackStride(entry);
     }
     return y;
   }
 
   function stackTopBelowIntro() {
     let y = 0;
-    for (const stackId of ["selected", "index"]) {
+    for (const stackId of ["games", "adventures"]) {
       const entry = getStackEntry(stackId);
-      if (entry && entry.focusAmount < ON_SHELF_THRESHOLD) y += entry.stackThickness;
+      if (entry && entry.focusAmount < ON_SHELF_THRESHOLD) y += stackStride(entry);
     }
     return y;
   }
@@ -1260,10 +1630,10 @@ export function createBookshelf(camera, domElement, options = {}) {
 
     const aboutOnShelf =
       aboutEntry && aboutEntry.focusAmount < ABOUT_SUPPORT_THRESHOLD;
-    const indexEntry = getStackEntry("index");
-    const indexOnShelf =
-      indexEntry && indexEntry.focusAmount < ON_SHELF_THRESHOLD;
-    const canSupportLean = aboutOnShelf && indexOnShelf;
+    const adventuresEntry = getStackEntry("adventures");
+    const adventuresOnShelf =
+      adventuresEntry && adventuresEntry.focusAmount < ON_SHELF_THRESHOLD;
+    const canSupportLean = aboutOnShelf && adventuresOnShelf;
     const fallTargetPos = aboutOnShelf ? leanEntry.aboutTouchRestPos : leanEntry.fallenRestPos;
 
     if (!leanEntry.hasFallen && !canSupportLean) {
@@ -1319,18 +1689,34 @@ export function createBookshelf(camera, domElement, options = {}) {
     leanEntry.angularVelocity = 0;
   }
 
-  function animateSlides() {
+  function animateSlides(delta = 1 / 60) {
+    stepBadgeSwing(badge, draggingBadge);
     for (let i = 0; i < bookEntries.length; i++) {
       const entry = bookEntries[i];
       const isActive = i === activeIndex;
       const targetFocus = isActive ? 1 : 0;
-      entry.focusAmount += (targetFocus - entry.focusAmount) * FOCUS_LERP;
-      entry.focusYaw += (entry.focusYawTarget - entry.focusYaw) * OPEN_ORIENT_LERP;
+      const focusDamp =
+        gamesClosePending && isGameBoxEntry(entry) && !isActive ? GAMES_CLOSE_FOCUS_DAMP : FOCUS_DAMP;
+      entry.focusAmount = THREE.MathUtils.damp(entry.focusAmount, targetFocus, focusDamp, delta);
+      entry.focusYaw = THREE.MathUtils.damp(
+        entry.focusYaw,
+        entry.focusYawTarget,
+        OPEN_ORIENT_DAMP,
+        delta
+      );
       if (entry.focusPitchTarget != null) {
-        entry.focusPitch += (entry.focusPitchTarget - entry.focusPitch) * OPEN_ORIENT_LERP;
+        entry.focusPitch = THREE.MathUtils.damp(
+          entry.focusPitch,
+          entry.focusPitchTarget,
+          OPEN_ORIENT_DAMP,
+          delta
+        );
       }
-      animateBookOpen(entry);
+      animateBookOpen(entry, delta);
     }
+
+    updateGamesOverlayVisual();
+    finishGamesCloseIfNeeded();
 
     updateHorizontalStack();
     if (leanEntryRef) updateLeanBookSupport(leanEntryRef);
@@ -1349,20 +1735,26 @@ export function createBookshelf(camera, domElement, options = {}) {
 
       if (entry.focusAmount > 0.0005) {
         const focusT = entry.focusAmount;
-        const baseZ = THREE.MathUtils.lerp(entry.restRotation, 0, focusT);
+        const baseZ = isGameBoxEntry(entry)
+          ? entry.restRotation
+          : THREE.MathUtils.lerp(entry.restRotation, 0, focusT);
         _focusEuler.set(entry.focusPitch * focusT, entry.focusYaw * focusT, baseZ, "YXZ");
         entry.group.rotation.copy(_focusEuler);
         getFocusGroupPos(entry.group, _focusLocal, _focusEuler, _focusGroupPos);
         entry.group.position.lerpVectors(entry.restPos, _focusGroupPos, focusT);
+        if (isGameBoxEntry(entry) && entry.clickBump > 0.001) {
+          entry.clickBump = THREE.MathUtils.damp(entry.clickBump, 0, 14, delta);
+          entry.group.position.lerp(_focusGroupPos, entry.clickBump * 0.11 * focusT);
+        }
         entry.mesh.renderOrder = focusT > 0.4 ? 2 : 0;
       } else if (entry.section.id === "intro") {
         entry.group.rotation.z = entry.restRotation;
         const aboutOffShelf =
           aboutEntry && aboutEntry.focusAmount >= ABOUT_SUPPORT_THRESHOLD;
-        const indexEntry = getStackEntry("index");
-        const indexOffShelf =
-          indexEntry && indexEntry.focusAmount >= ON_SHELF_THRESHOLD;
-        const falling = !entry.hasFallen && (aboutOffShelf || indexOffShelf);
+        const adventuresEntry = getStackEntry("adventures");
+        const adventuresOffShelf =
+          adventuresEntry && adventuresEntry.focusAmount >= ON_SHELF_THRESHOLD;
+        const falling = !entry.hasFallen && (aboutOffShelf || adventuresOffShelf);
         const settle =
           entry.hasFallen &&
           entry.inAboutGap &&
@@ -1378,6 +1770,12 @@ export function createBookshelf(camera, domElement, options = {}) {
       } else if (entry.stackThickness != null) {
         entry.group.rotation.z = entry.restRotation;
         entry.group.position.lerp(entry.restPos, STACK_DROP_LERP);
+        if (isGameBoxEntry(entry)) {
+          entry.group.scale.set(1, 1, 1);
+          if (entry.clickBump > 0.001) {
+            entry.clickBump = THREE.MathUtils.damp(entry.clickBump, 0, 14, delta);
+          }
+        }
         entry.mesh.renderOrder = 0;
       } else {
         entry.group.position.lerp(entry.restPos, FOCUS_LERP);
@@ -1420,6 +1818,7 @@ export function createBookshelf(camera, domElement, options = {}) {
     openBookBtn.remove();
     pageNav.root.remove();
     projectsOverlay.remove();
+    gamesOverlay.remove();
   }
 
   function clearActive() {

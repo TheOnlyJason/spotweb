@@ -2,6 +2,18 @@
 
 A 3D bookshelf portfolio: each book is a section of your site, defined in `jason.md`.
 
+Live site: [jasonneverdai.com](https://jasonneverdai.com)
+
+## Deploy (GitHub Pages)
+
+1. Push to `main` on GitHub — the [deploy workflow](.github/workflows/deploy-pages.yml) builds `dist/` and publishes automatically.
+2. In the repo: **Settings → Pages → Build and deployment → Source: GitHub Actions**.
+3. Custom domain: **Settings → Pages → Custom domain** → enter `jasonneverdai.com` (matches `public/CNAME`).
+4. At your registrar, point DNS to GitHub:
+   - **Apex** `@` → A records `185.199.108.153`, `185.199.109.153`, `185.199.110.153`, `185.199.111.153`
+   - **www** (optional) → CNAME `www` → `theonlyjason.github.io`
+5. Enable **Enforce HTTPS** once DNS verifies.
+
 ## Run
 
 ```bash

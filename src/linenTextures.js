@@ -1,8 +1,15 @@
 import * as THREE from "three";
-import { drawSpineBackground, drawSpineLabel } from "./spineText.js";
+import {
+  drawSpineBackground,
+  drawSpineLabel,
+  spineCanvasSize,
+  configureSpineTexture,
+} from "./spineText.js";
 import { softenColor } from "./colors.js";
 
 const BASE = "/textures/linen/";
+const DEFAULT_SPINE_HEIGHT = 1.02;
+const DEFAULT_SPINE_THICKNESS = 0.13;
 let loadPromise = null;
 
 function loadImageTexture(loader, url, { colorSpace } = {}) {
@@ -53,11 +60,14 @@ export function createLinenCoverMaterial(linen, tintColor, repeat = [1.4, 1.8]) 
   return mat;
 }
 
-/** Spine uses baked canvas (linen tint + label) — same base look as cover. */
-export function createLinenSpineMaterial(linen, tintColor, label, { flipLabel = false } = {}) {
+export function createLinenSpineMaterial(
+  linen,
+  tintColor,
+  label,
+  { flipLabel = false, height = DEFAULT_SPINE_HEIGHT, thickness = DEFAULT_SPINE_THICKNESS } = {}
+) {
   const tint = softenColor(tintColor);
-  const w = 512;
-  const h = 2048;
+  const { w, h } = spineCanvasSize(height, thickness);
   const canvas = document.createElement("canvas");
   canvas.width = w;
   canvas.height = h;
@@ -79,9 +89,7 @@ export function createLinenSpineMaterial(linen, tintColor, label, { flipLabel = 
   drawSpineLabel(ctx, w, h, label, { flip: flipLabel });
 
   const map = new THREE.CanvasTexture(canvas);
-  map.colorSpace = THREE.SRGBColorSpace;
-  map.generateMipmaps = true;
-  map.minFilter = THREE.LinearMipmapLinearFilter;
+  configureSpineTexture(map);
 
   const mat = new THREE.MeshLambertMaterial({ map });
   mat.emissive = new THREE.Color(0x000000);

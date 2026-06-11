@@ -17,6 +17,11 @@ function hasSize() {
 }
 
 async function setupScene() {
+  await Promise.all([
+    document.fonts.load('600 52px "Source Sans 3"'),
+    document.fonts.load('400 26px "Source Serif 4"'),
+  ]).catch(() => {});
+
   const linen = await loadLinenTextures().catch((err) => {
     console.warn("Linen textures unavailable, using procedural covers.", err);
     return null;
@@ -36,15 +41,15 @@ async function setupScene() {
         photo: "/jason.jpg",
       },
       {
-        id: "selected",
-        title: "Selected",
-        body: site.sections[1]?.body ?? "Highlighted work and projects.",
+        id: "games",
+        title: "Games",
+        body: "Games I've built — pull out the box and open the lid to browse them.",
         color: site.sections[1]?.color ?? "#c9887a",
       },
       {
-        id: "index",
-        title: "Index",
-        body: site.sections.map((s) => s.title).join("\n"),
+        id: "adventures",
+        title: "Adventures",
+        body: "Stories from the road — open the book to read them.",
         color: site.sections[2]?.color ?? "#4fa892",
       },
     ],
