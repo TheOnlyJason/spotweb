@@ -4,15 +4,51 @@ A 3D bookshelf portfolio: each book is a section of your site, defined in `jason
 
 Live site: [jasonneverdai.com](https://jasonneverdai.com)
 
-## Deploy (GitHub Pages)
+## Deploy (Cloudflare Pages)
 
-1. Push to `main` on GitHub — the [deploy workflow](.github/workflows/deploy-pages.yml) builds `dist/` and publishes automatically.
-2. In the repo: **Settings → Pages → Build and deployment → Source: GitHub Actions**.
-3. Custom domain: **Settings → Pages → Custom domain** → enter `jasonneverdai.com` (matches `public/CNAME`).
-4. At your registrar, point DNS to GitHub:
-   - **Apex** `@` → A records `185.199.108.153`, `185.199.109.153`, `185.199.110.153`, `185.199.111.153`
-   - **www** (optional) → CNAME `www` → `theonlyjason.github.io`
-5. Enable **Enforce HTTPS** once DNS verifies.
+This is a static Vite site — no server, env vars, or database required.
+
+### 1. Point the domain to Cloudflare (GoDaddy)
+
+In **GoDaddy → Domain → DNS → Nameservers**, choose custom nameservers and set:
+
+1. `hank.ns.cloudflare.com`
+2. `khloe.ns.cloudflare.com`
+
+Remove the old GoDaddy nameservers (`ns63.domaincontrol.com`, `ns64.domaincontrol.com`). Save, then click **Continue** in Cloudflare. Propagation can take a few minutes up to 24 hours.
+
+### 2. Create the Pages project
+
+1. [Cloudflare Dashboard](https://dash.cloudflare.com) → **Workers & Pages** → **Create** → **Pages** → **Connect to Git**
+2. Select **`TheOnlyJason/spotweb`** (push latest `main` first if needed)
+3. Build settings:
+
+| Setting | Value |
+|---------|--------|
+| Production branch | `main` |
+| Build command | `npm run build` |
+| Build output directory | `dist` |
+| Node.js version | `22` (Settings → Environment variables → `NODE_VERSION` = `22`) |
+
+4. **Save and Deploy**
+
+**If your project uses a deploy command** (`npm run deploy` or `wrangler deploy`), the repo includes `wrangler.jsonc` — it serves the built `dist/` folder. Do **not** let Wrangler auto-modify Vite; `vite.config.js` already has `plugins: []`.
+
+**Recommended for Git-connected Pages:** build command `npm run build`, output directory `dist` only (no `wrangler deploy` in the dashboard).
+
+### 3. Attach your domain
+
+After the first deploy succeeds:
+
+1. Pages project → **Custom domains** → **Set up a custom domain**
+2. Add `jasonneverdai.com` and optionally `www.jasonneverdai.com`
+3. Cloudflare creates the DNS records automatically (domain must use Cloudflare nameservers from step 1)
+
+### 4. Verify
+
+- `https://jasonneverdai.com` loads the bookshelf
+- Books, photos (`/jason.jpg`, `/adventures/…`), and project links work
+- Every push to `main` triggers a new production deploy
 
 ## Run
 
