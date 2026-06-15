@@ -1,15 +1,15 @@
-import { repoUrl } from "./projects.js";
+import { SITE_HOST } from "./site.js";
 
 // Games you've built — add `playUrl` when you have a live demo; otherwise links to the repo.
 export const GAMES = [
   {
     label: "Spot Battle",
-    playUrl: repoUrl("spotbattle"),
+    playUrl: `https://spotbattle.${SITE_HOST}`,
     note: "Spotify battle game (TypeScript)",
   },
   {
     label: "Astro Dash",
-    playUrl: repoUrl("Astro-Dash"),
+    playUrl: `https://astrodash.${SITE_HOST}`,
     note: "3D endless runner (Three.js)",
   },
 ];
