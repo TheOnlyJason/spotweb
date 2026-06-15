@@ -4,7 +4,7 @@ import { SITE_HOST } from "./site.js";
 export const GAMES = [
   {
     label: "Spot Battle",
-    playUrl: `https://spotbattle.${SITE_HOST}`,
+    playUrl: `https://spotbattle.${SITE_HOST}/`,
     note: "Spotify battle game (TypeScript)",
   },
   {
