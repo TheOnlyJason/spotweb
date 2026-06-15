@@ -54,7 +54,7 @@ async function setupScene() {
       },
     ],
     linen,
-    badgePhoto: "/jason.jpg",
+    badgePhoto: "/jason-badge.jpg",
   });
 }
 

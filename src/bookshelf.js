@@ -432,10 +432,15 @@ function createNameBadge(box, photoUrl) {
     photoMat.color.set(0xffffff);
     photoMat.needsUpdate = true;
   });
-  // Square photo → square plane; sits in the upper portion of the card.
-  const photoSize = cardW * 0.8;
-  const photo = new THREE.Mesh(new THREE.PlaneGeometry(photoSize, photoSize), photoMat);
-  photo.position.set(0, cardH * 0.16, 0.013);
+  // Photo rectangle fills the card down to the printed name block on the face texture.
+  const photoPadX = cardW * 0.04;
+  const photoPadTop = 0.022;
+  const photoPadBottom = 0.112;
+  const photoW = cardW - photoPadX * 2;
+  const photoH = cardH - photoPadTop - photoPadBottom;
+  const photoTopY = cardH / 2 - photoPadTop;
+  const photo = new THREE.Mesh(new THREE.PlaneGeometry(photoW, photoH), photoMat);
+  photo.position.set(0, photoTopY - photoH / 2, 0.013);
   card.add(photo);
   pivot.add(card);
 
