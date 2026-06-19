@@ -12,6 +12,11 @@ export const GAMES = [
     playUrl: `https://astrodash.${SITE_HOST}`,
     note: "3D endless runner (Three.js)",
   },
+  {
+    label: "RightFluencer",
+    playUrl: `https://rightfluencer.${SITE_HOST}/`,
+    note: "Influencer game",
+  },
 ];
 
 export function gamesToSection() {
