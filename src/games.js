@@ -17,6 +17,11 @@ export const GAMES = [
     playUrl: `https://rightfluencer.${SITE_HOST}/`,
     note: "Influencer game",
   },
+  {
+    label: "MobiusCheser",
+    playUrl: `https://mobiuscheser.${SITE_HOST}/`,
+    note: "Chess on a Möbius strip",
+  },
 ];
 
 export function gamesToSection() {
