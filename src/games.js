@@ -22,6 +22,11 @@ export const GAMES = [
     playUrl: `https://mobiuscheser.${SITE_HOST}/`,
     note: "Chess on a Möbius strip",
   },
+  {
+    label: "GALE",
+    playUrl: `https://flyer.${SITE_HOST}/`,
+    note: "Sky-sailing runner",
+  },
 ];
 
 export function gamesToSection() {
