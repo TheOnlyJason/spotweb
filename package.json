@@ -6,13 +6,16 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "npm run build && wrangler dev",
+    "deploy": "npm run build && wrangler deploy"
   },
   "dependencies": {
     "three": "^0.175.0"
   },
   "devDependencies": {
-    "vite": "^6.3.5"
+    "@cloudflare/vite-plugin": "^1.42.2",
+    "vite": "^6.3.5",
+    "wrangler": "^4.104.0"
   },
   "engines": {
     "node": ">=20"
